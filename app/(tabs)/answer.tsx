@@ -4,6 +4,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -39,32 +40,51 @@ export default function AnswerScreen() {
   const [toPage, setToPage] = useState("");
 
   const handlePdfUpload = async () => {
-    const result = await DocumentPicker.getDocumentAsync({
+    const picked = await DocumentPicker.getDocumentAsync({
       type: "application/pdf",
       copyToCacheDirectory: true,
     });
-    if (result.canceled) return;
+    if (picked.canceled) return;
 
-    const file = result.assets[0];
+    const file = picked.assets[0];
     setPdfLoading(true);
     setPdfInfo(null);
 
     const formData = new FormData();
-    formData.append("pdf", { uri: file.uri, type: "application/pdf", name: file.name } as any);
+
+    // Web: expo-document-picker は file.file に実際の File オブジェクトを持つ
+    // Native: { uri, type, name } 形式で React Native の FormData に渡す
+    if (Platform.OS === "web" && (file as any).file) {
+      formData.append("pdf", (file as any).file, file.name || "document.pdf");
+    } else if (Platform.OS === "web") {
+      // fallback: blob URL をフェッチして Blob 化
+      const blobRes = await fetch(file.uri);
+      const blob = await blobRes.blob();
+      formData.append("pdf", blob, file.name || "document.pdf");
+    } else {
+      formData.append("pdf", { uri: file.uri, type: "application/pdf", name: file.name } as any);
+    }
+
     if (fromPage) formData.append("fromPage", fromPage);
     if (toPage) formData.append("toPage", toPage);
 
     try {
-      const response = await fetch(`${API_BASE_URL}/extract-pdf`, {
-        method: "POST",
-        body: formData,
-      });
+      const response = await fetch(`${API_BASE_URL}/extract-pdf`, { method: "POST", body: formData });
       const data = await response.json();
       if (data.error) throw new Error(data.error);
       setQuestion(data.text);
       setPdfInfo({ totalPages: data.totalPages, fromPage: data.fromPage, toPage: data.toPage });
     } catch (e: any) {
-      setError("PDF読み込みに失敗しました: " + e.message);
+      const msg: string = e.message || "";
+      if (msg.includes("NO_FILE")) {
+        setError("ファイルの送信に失敗しました。PDFを再選択してください。");
+      } else if (msg.includes("NO_TEXT")) {
+        setError("テキストを抽出できませんでした。スキャン画像PDFの場合は「カメラで撮影」機能をご利用ください。");
+      } else if (msg.includes("PARSE_ERROR")) {
+        setError("PDFの解析に失敗しました。パスワード保護や破損したファイルは読み込めません。");
+      } else {
+        setError("PDF読み込みに失敗しました: " + msg);
+      }
     } finally {
       setPdfLoading(false);
     }
@@ -102,17 +122,19 @@ export default function AnswerScreen() {
     setImageFileName(fileName);
 
     const formData = new FormData();
-    formData.append("image", {
-      uri: image.uri,
-      type: image.mimeType || "image/jpeg",
-      name: fileName,
-    } as any);
+
+    // Web: blob URL → Blob に変換してから append
+    // Native: { uri, type, name } 形式
+    if (Platform.OS === "web") {
+      const blobRes = await fetch(image.uri);
+      const blob = await blobRes.blob();
+      formData.append("image", blob, fileName);
+    } else {
+      formData.append("image", { uri: image.uri, type: image.mimeType || "image/jpeg", name: fileName } as any);
+    }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/extract-image`, {
-        method: "POST",
-        body: formData,
-      });
+      const response = await fetch(`${API_BASE_URL}/extract-image`, { method: "POST", body: formData });
       const data = await response.json();
       if (data.error) throw new Error(data.error);
       setAnswer(data.text);

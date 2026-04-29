@@ -31,6 +31,7 @@ export default function AnswerScreen() {
   const [error, setError] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
+  const [imageFileName, setImageFileName] = useState("");
   const [pdfInfo, setPdfInfo] = useState<{ totalPages: number; fromPage: number; toPage: number } | null>(null);
   const [fromPage, setFromPage] = useState("1");
   const [toPage, setToPage] = useState("");
@@ -64,6 +65,7 @@ export default function AnswerScreen() {
     const file = e.target.files[0];
     if (!file) return;
     setImageLoading(true);
+    setImageFileName(file.name || "画像ファイル");
     const formData = new FormData();
     formData.append("image", file);
     try {
@@ -76,6 +78,7 @@ export default function AnswerScreen() {
       setAnswer(data.text);
     } catch (e: any) {
       setError("画像の読み込みに失敗しました: " + e.message);
+      setImageFileName("");
     } finally {
       setImageLoading(false);
     }
@@ -208,24 +211,45 @@ export default function AnswerScreen() {
 
       {/* 答案 */}
       <View style={styles.section}>
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>✏️ あなたの答案</Text>
-          <label style={{ cursor: "pointer" } as any}>
-            <View style={styles.pdfButton}>
+        <Text style={styles.sectionTitle}>✏️ あなたの答案</Text>
+
+        {/* 画像入力ボタン */}
+        <View style={styles.imageButtonRow}>
+          <label style={{ flex: 1, cursor: "pointer" } as any}>
+            <View style={[styles.imageButton, { backgroundColor: "#f5f3ff", borderColor: "#c4b5fd" }]}>
               {imageLoading ? (
                 <ActivityIndicator size="small" color="#7c3aed" />
               ) : (
-                <Text style={[styles.pdfButtonText, { color: "#7c3aed" }]}>📷 写真から読み込む</Text>
+                <Text style={[styles.imageButtonText, { color: "#7c3aed" }]}>🖼 ギャラリーから選択</Text>
               )}
             </View>
-            <input
-              type="file"
-              accept="image/*"
-              style={{ display: "none" }}
-              onChange={handleImageUpload}
-            />
+            <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageUpload} />
+          </label>
+          <label style={{ flex: 1, cursor: "pointer" } as any}>
+            <View style={[styles.imageButton, { backgroundColor: "#fdf4ff", borderColor: "#e879f9" }]}>
+              {imageLoading ? (
+                <ActivityIndicator size="small" color="#a21caf" />
+              ) : (
+                <Text style={[styles.imageButtonText, { color: "#a21caf" }]}>📸 カメラで撮影</Text>
+              )}
+            </View>
+            <input type="file" accept="image/*" capture="camera" style={{ display: "none" }} onChange={handleImageUpload} />
           </label>
         </View>
+
+        {/* OCR処理中・完了表示 */}
+        {imageLoading && (
+          <View style={styles.ocrStatus}>
+            <ActivityIndicator size="small" color="#7c3aed" />
+            <Text style={styles.ocrStatusText}>AIが手書き文字を認識中...</Text>
+          </View>
+        )}
+        {!imageLoading && imageFileName !== "" && (
+          <View style={styles.ocrDone}>
+            <Text style={styles.ocrDoneText}>✅ 「{imageFileName}」をテキスト化しました</Text>
+          </View>
+        )}
+
         <TextInput
           style={styles.input}
           multiline
@@ -375,6 +399,34 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   charCount: { fontSize: 12, color: "#94a3b8", textAlign: "right", marginTop: 6 },
+  imageButtonRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
+  imageButton: {
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: "center",
+  },
+  imageButtonText: { fontSize: 13, fontWeight: "600" },
+  ocrStatus: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#f5f3ff",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  ocrStatusText: { color: "#7c3aed", fontSize: 13 },
+  ocrDone: {
+    backgroundColor: "#f0fdf4",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+  },
+  ocrDoneText: { color: "#166534", fontSize: 13 },
   button: {
     backgroundColor: "#2563eb",
     paddingVertical: 16,

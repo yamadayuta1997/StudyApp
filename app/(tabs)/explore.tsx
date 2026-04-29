@@ -19,6 +19,8 @@ export type HistoryItem = {
   result: string;
   score: number | null;
   date: string;
+  topics?: string[];
+  wrongTopics?: string[];
 };
 
 function ScoreBadge({ score }: { score: number | null }) {

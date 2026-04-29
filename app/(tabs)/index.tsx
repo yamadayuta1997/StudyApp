@@ -3,10 +3,13 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 
@@ -25,6 +28,8 @@ type DashboardStats = {
 
 export default function HomeScreen() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 768;
   const [stats, setStats] = useState<DashboardStats>({
     totalCount: 0,
     todayCount: 0,
@@ -117,6 +122,7 @@ export default function HomeScreen() {
   };
 
   return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
     <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
       {/* ヘッダー */}
       <View style={styles.hero}>
@@ -198,17 +204,17 @@ export default function HomeScreen() {
 
       {/* メニューカード */}
       <View style={styles.menuGrid}>
-        <TouchableOpacity style={styles.menuCard} onPress={() => router.push("/(tabs)/answer")}>
+        <TouchableOpacity style={[styles.menuCard, isTablet && { minWidth: "28%" }]} onPress={() => router.push("/(tabs)/answer")}>
           <Text style={styles.menuEmoji}>✏️</Text>
           <Text style={styles.menuTitle}>答案採点</Text>
           <Text style={styles.menuDesc}>問題文と答案を入力してAIが即採点</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.menuCard} onPress={() => router.push("/(tabs)/analytics")}>
+        <TouchableOpacity style={[styles.menuCard, isTablet && { minWidth: "28%" }]} onPress={() => router.push("/(tabs)/analytics")}>
           <Text style={styles.menuEmoji}>📊</Text>
           <Text style={styles.menuTitle}>苦手分析</Text>
           <Text style={styles.menuDesc}>科目別の得点率と学習アドバイス</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.menuCard} onPress={() => router.push("/(tabs)/explore")}>
+        <TouchableOpacity style={[styles.menuCard, isTablet && { minWidth: "28%" }]} onPress={() => router.push("/(tabs)/explore")}>
           <Text style={styles.menuEmoji}>📋</Text>
           <Text style={styles.menuTitle}>採点履歴</Text>
           <Text style={styles.menuDesc}>過去の採点結果をいつでも確認</Text>
@@ -220,6 +226,7 @@ export default function HomeScreen() {
         <Text style={styles.buttonText}>今すぐ問題を解く →</Text>
       </TouchableOpacity>
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 

@@ -3,6 +3,8 @@ import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -54,6 +56,7 @@ export default function AnalyticsScreen() {
   const [studyTip, setStudyTip] = useState("");
   const [tipSubject, setTipSubject] = useState("");
   const [tipLoading, setTipLoading] = useState(false);
+  const [top5WrongTopics, setTop5WrongTopics] = useState<{ topic: string; count: number }[]>([]);
 
   useFocusEffect(useCallback(() => { loadAnalytics(); }, []));
 
@@ -69,7 +72,6 @@ export default function AnalyticsScreen() {
       if (item.subject && subjectData[item.subject] !== undefined && item.score !== null && item.score !== undefined) {
         subjectData[item.subject].push(item.score);
       } else if (item.subject && subjectData[item.subject] !== undefined) {
-        // 採点したが得点率なし
         subjectData[item.subject].push(-1);
       }
     });
@@ -92,7 +94,6 @@ export default function AnalyticsScreen() {
       return { subject, count, avgScore, lastScore, trend };
     });
 
-    // 弱い順（得点率低い順・未練習を最後）
     statsArr.sort((a, b) => {
       if (a.avgScore === null && b.avgScore === null) return 0;
       if (a.avgScore === null) return 1;
@@ -101,6 +102,21 @@ export default function AnalyticsScreen() {
     });
 
     setStats(statsArr);
+
+    // 苦手論点 TOP5 集計
+    const wrongTopicsCount: Record<string, number> = {};
+    history.forEach(item => {
+      if (item.wrongTopics) {
+        item.wrongTopics.forEach((t: string) => {
+          wrongTopicsCount[t] = (wrongTopicsCount[t] || 0) + 1;
+        });
+      }
+    });
+    const top5 = Object.entries(wrongTopicsCount)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([topic, count]) => ({ topic, count }));
+    setTop5WrongTopics(top5);
   };
 
   const getStudyTip = async (subject: string, avgScore: number | null) => {
@@ -126,6 +142,7 @@ export default function AnalyticsScreen() {
   const untried = stats.filter(s => s.count === 0);
 
   return (
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.title}>📊 苦手分析</Text>
 
@@ -144,6 +161,22 @@ export default function AnalyticsScreen() {
           <Text style={styles.summaryLabel}>未練習科目</Text>
         </View>
       </View>
+
+      {/* 苦手論点 TOP5 */}
+      {top5WrongTopics.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🔴 苦手論点 TOP5</Text>
+          {top5WrongTopics.map(({ topic, count }, i) => (
+            <View key={topic} style={styles.wrongTopicRow}>
+              <Text style={styles.wrongTopicRank}>#{i + 1}</Text>
+              <Text style={styles.wrongTopicName}>{topic}</Text>
+              <View style={styles.wrongTopicBadge}>
+                <Text style={styles.wrongTopicBadgeText}>{count}回</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* 科目別得点率 */}
       <View style={styles.section}>
@@ -194,6 +227,7 @@ export default function AnalyticsScreen() {
         </View>
       )}
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -275,6 +309,18 @@ const styles = StyleSheet.create({
   },
   untriedTitle: { fontSize: 14, fontWeight: "bold", color: "#92400e", marginBottom: 8 },
   untriedText: { fontSize: 14, color: "#78350f", lineHeight: 22 },
+  wrongTopicRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 },
+  wrongTopicRank: { fontSize: 13, fontWeight: "bold", color: "#dc2626", width: 28 },
+  wrongTopicName: { flex: 1, fontSize: 14, color: "#1e293b", fontWeight: "600" },
+  wrongTopicBadge: {
+    backgroundColor: "#fee2e2",
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#fca5a5",
+  },
+  wrongTopicBadgeText: { color: "#dc2626", fontSize: 12, fontWeight: "bold" },
 });
 
 const markdownStyles = {

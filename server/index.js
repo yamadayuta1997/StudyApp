@@ -10,7 +10,6 @@ app.use(express.json({ limit: "20mb" }));
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-// pdfjs をキャッシュして workerSrc を無効化（サーバーサイド用）
 let _pdfjsLib = null;
 async function getPdfjsLib() {
   if (!_pdfjsLib) {
@@ -24,6 +23,7 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
+// 採点 + 得点率・論点・誤答論点を返す
 app.post("/grade", async (req, res) => {
   try {
     const { question, answer, subject } = req.body;
@@ -35,34 +35,37 @@ app.post("/grade", async (req, res) => {
       max_tokens: 1500,
       messages: [{
         role: "user",
-        content: `あなたは公認会計士試験の採点官です。科目は「${subject}」です。以下の問題と答案を採点してください。\n\n【問題】\n${question}\n\n【答案】\n${answer}\n\n正誤判定と改善点を丁寧に説明してください。最後に必ず「【得点率】XX%」という形式で数値を記載してください。`,
+        content: `あなたは公認会計士試験の採点官です。科目は「${subject}」です。以下の問題と答案を採点してください。\n\n【問題】\n${question}\n\n【答案】\n${answer}\n\n正誤判定と改善点を丁寧に説明してください。最後に必ず以下の形式で記載してください：\n【得点率】XX%\n【論点】論点名1, 論点名2（この問題で問われた主要な論点を3つ以内でカンマ区切り）\n【誤答論点】論点名（間違えた・不十分だった論点。完答の場合は「なし」）`,
       }],
     });
     const resultText = message.content[0].text;
     const scoreMatch = resultText.match(/【得点率】(\d+)%/);
     const score = scoreMatch ? parseInt(scoreMatch[1]) : null;
-    res.json({ result: resultText, score });
+    const topicsMatch = resultText.match(/【論点】(.+)/);
+    const wrongMatch = resultText.match(/【誤答論点】(.+)/);
+    const topics = topicsMatch ? topicsMatch[1].split(",").map(s => s.trim()).filter(Boolean) : [];
+    const wrongTopics = wrongMatch && wrongMatch[1].trim() !== "なし"
+      ? wrongMatch[1].split(",").map(s => s.trim()).filter(Boolean)
+      : [];
+    res.json({ result: resultText, score, topics, wrongTopics });
   } catch (e) {
     console.error("/grade error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
 
+// PDF抽出（ページ範囲指定対応）
 app.post("/extract-pdf", upload.single("pdf"), async (req, res) => {
   try {
-    // ファイル未受信チェック（Web側のFormData不備を検出）
     if (!req.file) {
       return res.status(400).json({
         error: "PDFファイルを受信できませんでした。ファイルが正しく送信されているか確認してください。",
         code: "NO_FILE",
       });
     }
-
     const fromPage = Math.max(1, parseInt(req.body.fromPage) || 1);
     const toPageReq = parseInt(req.body.toPage) || null;
-
     const pdfjsLib = await getPdfjsLib();
-
     let pdfDocument;
     try {
       const loadingTask = pdfjsLib.getDocument({
@@ -73,13 +76,11 @@ app.post("/extract-pdf", upload.single("pdf"), async (req, res) => {
       });
       pdfDocument = await loadingTask.promise;
     } catch (pdfErr) {
-      console.error("pdfjs getDocument error:", pdfErr.message);
       return res.status(400).json({
-        error: `PDFの解析に失敗しました: ${pdfErr.message}。破損したファイルや、パスワード保護されたPDFは読み込めません。`,
+        error: `PDFの解析に失敗しました: ${pdfErr.message}。パスワード保護PDFは読み込めません。`,
         code: "PARSE_ERROR",
       });
     }
-
     const totalPages = pdfDocument.numPages;
     if (fromPage > totalPages) {
       return res.status(400).json({
@@ -88,35 +89,27 @@ app.post("/extract-pdf", upload.single("pdf"), async (req, res) => {
       });
     }
     const endPage = toPageReq ? Math.min(toPageReq, totalPages) : totalPages;
-
     let fullText = "";
     for (let i = fromPage; i <= endPage; i++) {
       const page = await pdfDocument.getPage(i);
       const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .filter((item) => "str" in item)
-        .map((item) => item.str)
-        .join(" ")
-        .trim();
-      if (pageText) {
-        fullText += `--- ${i}ページ ---\n${pageText}\n\n`;
-      }
+      const pageText = textContent.items.filter(item => "str" in item).map(item => item.str).join(" ").trim();
+      if (pageText) fullText += `--- ${i}ページ ---\n${pageText}\n\n`;
     }
-
     if (!fullText.trim()) {
       return res.status(400).json({
-        error: "PDFからテキストを抽出できませんでした。スキャン画像型PDFの可能性があります。その場合は「カメラで撮影」または「画像から読み込む」機能をご利用ください。",
+        error: "PDFからテキストを抽出できませんでした。スキャン画像型PDFの場合は「カメラで撮影」機能をご利用ください。",
         code: "NO_TEXT",
       });
     }
-
     res.json({ text: fullText, totalPages, fromPage, toPage: endPage });
   } catch (e) {
-    console.error("/extract-pdf error:", e.message, e.stack);
+    console.error("/extract-pdf error:", e.message);
     res.status(500).json({ error: `サーバーエラー: ${e.message}`, code: "SERVER_ERROR" });
   }
 });
 
+// 画像（写真・手書き答案）からテキスト抽出
 app.post("/extract-image", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
@@ -124,7 +117,6 @@ app.post("/extract-image", upload.single("image"), async (req, res) => {
     }
     const imageBase64 = req.file.buffer.toString("base64");
     const mediaType = req.file.mimetype || "image/jpeg";
-
     const message = await client.messages.create({
       model: "claude-sonnet-4-5",
       max_tokens: 2048,
@@ -143,12 +135,12 @@ app.post("/extract-image", upload.single("image"), async (req, res) => {
   }
 });
 
+// 苦手科目の学習アドバイス
 app.post("/study-tip", async (req, res) => {
   try {
     const { subject, avgScore } = req.body;
     const scoreContext = avgScore !== null && avgScore !== undefined
-      ? `これまでの平均得点率は${avgScore}%です。`
-      : "";
+      ? `これまでの平均得点率は${avgScore}%です。` : "";
     const message = await client.messages.create({
       model: "claude-sonnet-4-5",
       max_tokens: 1024,
@@ -160,6 +152,26 @@ app.post("/study-tip", async (req, res) => {
     res.json({ tip: message.content[0].text });
   } catch (e) {
     console.error("/study-tip error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 採点後の質問チャット
+app.post("/chat", async (req, res) => {
+  try {
+    const { messages, subject, context } = req.body;
+    if (!messages || !subject) {
+      return res.status(400).json({ error: "messages・subject は必須です。" });
+    }
+    const message = await client.messages.create({
+      model: "claude-sonnet-4-5",
+      max_tokens: 1024,
+      system: `あなたは公認会計士試験の${subject}の講師です。以下の採点結果を踏まえて質問に答えてください：\n${context || ""}`,
+      messages: messages,
+    });
+    res.json({ reply: message.content[0].text });
+  } catch (e) {
+    console.error("/chat error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });

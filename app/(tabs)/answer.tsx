@@ -1,13 +1,13 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Markdown from "react-native-markdown-display";
 
@@ -30,24 +30,54 @@ export default function AnswerScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [pdfInfo, setPdfInfo] = useState<{ totalPages: number; fromPage: number; toPage: number } | null>(null);
+  const [fromPage, setFromPage] = useState("1");
+  const [toPage, setToPage] = useState("");
 
   const handlePdfUpload = async (e: any) => {
     const file = e.target.files[0];
     if (!file) return;
     setPdfLoading(true);
+    setPdfInfo(null);
     const formData = new FormData();
     formData.append("pdf", file);
+    if (fromPage) formData.append("fromPage", fromPage);
+    if (toPage) formData.append("toPage", toPage);
     try {
       const response = await fetch(`${API_BASE_URL}/extract-pdf`, {
         method: "POST",
         body: formData,
       });
       const data = await response.json();
-      setQuestion(data.text.slice(0, 1000));
-    } catch (e) {
-      setError("PDF読み込みに失敗しました。");
+      if (data.error) throw new Error(data.error);
+      setQuestion(data.text);
+      setPdfInfo({ totalPages: data.totalPages, fromPage: data.fromPage, toPage: data.toPage });
+    } catch (e: any) {
+      setError("PDF読み込みに失敗しました: " + e.message);
     } finally {
       setPdfLoading(false);
+    }
+  };
+
+  const handleImageUpload = async (e: any) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImageLoading(true);
+    const formData = new FormData();
+    formData.append("image", file);
+    try {
+      const response = await fetch(`${API_BASE_URL}/extract-image`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await response.json();
+      if (data.error) throw new Error(data.error);
+      setAnswer(data.text);
+    } catch (e: any) {
+      setError("画像の読み込みに失敗しました: " + e.message);
+    } finally {
+      setImageLoading(false);
     }
   };
 
@@ -72,14 +102,12 @@ export default function AnswerScreen() {
         question,
         answer,
         result: data.result,
+        score: data.score ?? null,
         date: new Date().toLocaleDateString("ja-JP"),
       };
       const raw = await AsyncStorage.getItem("history");
       const history = raw ? JSON.parse(raw) : [];
-      await AsyncStorage.setItem(
-        "history",
-        JSON.stringify([...history, newItem]),
-      );
+      await AsyncStorage.setItem("history", JSON.stringify([...history, newItem]));
     } catch (e) {
       setError("採点に失敗しました。もう一度お試しください。");
     } finally {
@@ -104,20 +132,10 @@ export default function AnswerScreen() {
           {SUBJECTS.map((s) => (
             <TouchableOpacity
               key={s}
-              style={[
-                styles.subjectButton,
-                subject === s && styles.subjectButtonActive,
-              ]}
+              style={[styles.subjectButton, subject === s && styles.subjectButtonActive]}
               onPress={() => setSubject(s)}
             >
-              <Text
-                style={[
-                  styles.subjectText,
-                  subject === s && styles.subjectTextActive,
-                ]}
-              >
-                {s}
-              </Text>
+              <Text style={[styles.subjectText, subject === s && styles.subjectTextActive]}>{s}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -143,6 +161,40 @@ export default function AnswerScreen() {
             />
           </label>
         </View>
+
+        {/* ページ範囲指定 */}
+        <View style={styles.pageRangeRow}>
+          <Text style={styles.pageRangeLabel}>ページ範囲：</Text>
+          <TextInput
+            style={styles.pageInput}
+            value={fromPage}
+            onChangeText={setFromPage}
+            placeholder="開始"
+            keyboardType="numeric"
+            placeholderTextColor="#94a3b8"
+          />
+          <Text style={styles.pageRangeSep}>〜</Text>
+          <TextInput
+            style={styles.pageInput}
+            value={toPage}
+            onChangeText={setToPage}
+            placeholder="終了"
+            keyboardType="numeric"
+            placeholderTextColor="#94a3b8"
+          />
+          <Text style={styles.pageRangeHint}>（空欄=全ページ）</Text>
+        </View>
+
+        {/* PDFプレビュー情報 */}
+        {pdfInfo && (
+          <View style={styles.pdfPreview}>
+            <Text style={styles.pdfPreviewText}>
+              全{pdfInfo.totalPages}ページ中 {pdfInfo.fromPage}〜{pdfInfo.toPage}ページを読み込みました
+            </Text>
+            <Text style={styles.pdfPreviewText}>{question.length.toLocaleString()} 文字</Text>
+          </View>
+        )}
+
         <TextInput
           style={styles.input}
           multiline
@@ -151,21 +203,38 @@ export default function AnswerScreen() {
           value={question}
           onChangeText={setQuestion}
         />
-        <Text style={styles.charCount}>{question.length} 文字</Text>
+        <Text style={styles.charCount}>{question.length.toLocaleString()} 文字</Text>
       </View>
 
       {/* 答案 */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>✏️ あなたの答案</Text>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>✏️ あなたの答案</Text>
+          <label style={{ cursor: "pointer" } as any}>
+            <View style={styles.pdfButton}>
+              {imageLoading ? (
+                <ActivityIndicator size="small" color="#7c3aed" />
+              ) : (
+                <Text style={[styles.pdfButtonText, { color: "#7c3aed" }]}>📷 写真から読み込む</Text>
+              )}
+            </View>
+            <input
+              type="file"
+              accept="image/*"
+              style={{ display: "none" }}
+              onChange={handleImageUpload}
+            />
+          </label>
+        </View>
         <TextInput
           style={styles.input}
           multiline
-          placeholder="答案を入力してください"
+          placeholder="答案を入力、または写真をアップロードしてください"
           placeholderTextColor="#94a3b8"
           value={answer}
           onChangeText={setAnswer}
         />
-        <Text style={styles.charCount}>{answer.length} 文字</Text>
+        <Text style={styles.charCount}>{answer.length.toLocaleString()} 文字</Text>
       </View>
 
       {/* 採点ボタン */}
@@ -181,9 +250,7 @@ export default function AnswerScreen() {
         )}
       </TouchableOpacity>
 
-      {!isReady && (
-        <Text style={styles.hint}>問題文と答案を入力してください</Text>
-      )}
+      {!isReady && <Text style={styles.hint}>問題文と答案を入力してください</Text>}
 
       {/* エラー */}
       {error !== "" && (
@@ -213,13 +280,8 @@ export default function AnswerScreen() {
 }
 
 const styles = StyleSheet.create({
-  scroll: {
-    backgroundColor: "#f1f5f9",
-  },
-  container: {
-    padding: 20,
-    paddingBottom: 60,
-  },
+  scroll: { backgroundColor: "#f1f5f9" },
+  container: { padding: 20, paddingBottom: 60 },
   header: {
     backgroundColor: "#1e40af",
     borderRadius: 16,
@@ -227,16 +289,8 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     alignItems: "center",
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 4,
-  },
-  headerSub: {
-    fontSize: 14,
-    color: "#bfdbfe",
-  },
+  headerTitle: { fontSize: 24, fontWeight: "bold", color: "#fff", marginBottom: 4 },
+  headerSub: { fontSize: 14, color: "#bfdbfe" },
   section: {
     backgroundColor: "#fff",
     borderRadius: 14,
@@ -255,17 +309,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 10,
   },
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "bold",
-    color: "#1e40af",
-    marginBottom: 10,
-  },
-  subjectGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
+  sectionTitle: { fontSize: 15, fontWeight: "bold", color: "#1e40af", marginBottom: 10 },
+  subjectGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   subjectButton: {
     paddingVertical: 8,
     paddingHorizontal: 14,
@@ -274,18 +319,9 @@ const styles = StyleSheet.create({
     borderColor: "#cbd5e1",
     backgroundColor: "#f8fafc",
   },
-  subjectButtonActive: {
-    backgroundColor: "#2563eb",
-    borderColor: "#2563eb",
-  },
-  subjectText: {
-    color: "#64748b",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  subjectTextActive: {
-    color: "#fff",
-  },
+  subjectButtonActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
+  subjectText: { color: "#64748b", fontSize: 13, fontWeight: "600" },
+  subjectTextActive: { color: "#fff" },
   pdfButton: {
     backgroundColor: "#eff6ff",
     paddingVertical: 6,
@@ -294,11 +330,38 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#bfdbfe",
   },
-  pdfButtonText: {
-    color: "#2563eb",
-    fontSize: 13,
-    fontWeight: "600",
+  pdfButtonText: { color: "#2563eb", fontSize: 13, fontWeight: "600" },
+  pageRangeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 10,
+    gap: 6,
   },
+  pageRangeLabel: { fontSize: 13, color: "#64748b" },
+  pageInput: {
+    width: 56,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 8,
+    padding: 6,
+    fontSize: 13,
+    textAlign: "center",
+    color: "#1e293b",
+    backgroundColor: "#f8fafc",
+  },
+  pageRangeSep: { fontSize: 13, color: "#64748b" },
+  pageRangeHint: { fontSize: 11, color: "#94a3b8" },
+  pdfPreview: {
+    backgroundColor: "#f0fdf4",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  pdfPreviewText: { fontSize: 12, color: "#166534" },
   input: {
     backgroundColor: "#f8fafc",
     borderRadius: 10,
@@ -311,12 +374,7 @@ const styles = StyleSheet.create({
     color: "#1e293b",
     lineHeight: 22,
   },
-  charCount: {
-    fontSize: 12,
-    color: "#94a3b8",
-    textAlign: "right",
-    marginTop: 6,
-  },
+  charCount: { fontSize: 12, color: "#94a3b8", textAlign: "right", marginTop: 6 },
   button: {
     backgroundColor: "#2563eb",
     paddingVertical: 16,
@@ -328,21 +386,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
   },
-  buttonDisabled: {
-    backgroundColor: "#94a3b8",
-    shadowOpacity: 0,
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 18,
-    fontWeight: "bold",
-  },
-  hint: {
-    textAlign: "center",
-    color: "#94a3b8",
-    fontSize: 13,
-    marginBottom: 16,
-  },
+  buttonDisabled: { backgroundColor: "#94a3b8", shadowOpacity: 0 },
+  buttonText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
+  hint: { textAlign: "center", color: "#94a3b8", fontSize: 13, marginBottom: 16 },
   errorBox: {
     backgroundColor: "#fef2f2",
     borderRadius: 10,
@@ -354,17 +400,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#fecaca",
   },
-  errorText: {
-    color: "#dc2626",
-    fontSize: 14,
-    flex: 1,
-  },
-  errorClose: {
-    color: "#dc2626",
-    fontSize: 18,
-    fontWeight: "bold",
-    marginLeft: 8,
-  },
+  errorText: { color: "#dc2626", fontSize: 14, flex: 1 },
+  errorClose: { color: "#dc2626", fontSize: 18, fontWeight: "bold", marginLeft: 8 },
   resultCard: {
     backgroundColor: "#fff",
     borderRadius: 14,
@@ -383,11 +420,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
-  resultTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#1e40af",
-  },
+  resultTitle: { fontSize: 18, fontWeight: "bold", color: "#1e40af" },
   resultBadge: {
     backgroundColor: "#eff6ff",
     paddingVertical: 4,
@@ -396,38 +429,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#bfdbfe",
   },
-  resultBadgeText: {
-    color: "#2563eb",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  resultDivider: {
-    height: 1,
-    backgroundColor: "#e2e8f0",
-    marginBottom: 14,
-  },
+  resultBadgeText: { color: "#2563eb", fontSize: 12, fontWeight: "600" },
+  resultDivider: { height: 1, backgroundColor: "#e2e8f0", marginBottom: 14 },
 });
 
 const markdownStyles = {
   body: { fontSize: 15, lineHeight: 24, color: "#334155" },
-  heading1: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#1e40af",
-    marginVertical: 8,
-  },
-  heading2: {
-    fontSize: 17,
-    fontWeight: "bold",
-    color: "#2563eb",
-    marginVertical: 6,
-  },
-  heading3: {
-    fontSize: 15,
-    fontWeight: "bold",
-    color: "#3b82f6",
-    marginVertical: 4,
-  },
+  heading1: { fontSize: 20, fontWeight: "bold", color: "#1e40af", marginVertical: 8 },
+  heading2: { fontSize: 17, fontWeight: "bold", color: "#2563eb", marginVertical: 6 },
+  heading3: { fontSize: 15, fontWeight: "bold", color: "#3b82f6", marginVertical: 4 },
   strong: { fontWeight: "bold" },
   bullet_list: { marginVertical: 4 },
   list_item: { marginVertical: 2 },

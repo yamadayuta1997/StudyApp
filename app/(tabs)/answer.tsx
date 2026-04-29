@@ -92,26 +92,36 @@ export default function AnswerScreen() {
 
   const handleImagePick = async (useCamera: boolean) => {
     let pickerResult;
-    if (useCamera) {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) {
-        setError("カメラの使用許可が必要です。設定から許可してください。");
-        return;
+    try {
+      if (useCamera) {
+        // Web ではカメラ権限 API が異なるためネイティブのみリクエスト
+        if (Platform.OS !== "web") {
+          const permission = await ImagePicker.requestCameraPermissionsAsync();
+          if (!permission.granted) {
+            setError("カメラの使用許可が必要です。設定から許可してください。");
+            return;
+          }
+        }
+        pickerResult = await ImagePicker.launchCameraAsync({
+          mediaTypes: "images",
+          quality: 0.8,
+        });
+      } else {
+        if (Platform.OS !== "web") {
+          const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (!permission.granted) {
+            setError("フォトライブラリへのアクセス許可が必要です。");
+            return;
+          }
+        }
+        pickerResult = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: "images",
+          quality: 0.8,
+        });
       }
-      pickerResult = await ImagePicker.launchCameraAsync({
-        mediaTypes: "images",
-        quality: 0.8,
-      });
-    } else {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        setError("フォトライブラリへのアクセス許可が必要です。");
-        return;
-      }
-      pickerResult = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: "images",
-        quality: 0.8,
-      });
+    } catch (e: any) {
+      setError("画像の選択に失敗しました: " + e.message);
+      return;
     }
 
     if (pickerResult.canceled) return;
@@ -541,10 +551,10 @@ const styles = StyleSheet.create({
 
 const markdownStyles = {
   body: { fontSize: 15, lineHeight: 24, color: "#334155" },
-  heading1: { fontSize: 20, fontWeight: "bold", color: "#1e40af", marginVertical: 8 },
-  heading2: { fontSize: 17, fontWeight: "bold", color: "#2563eb", marginVertical: 6 },
-  heading3: { fontSize: 15, fontWeight: "bold", color: "#3b82f6", marginVertical: 4 },
-  strong: { fontWeight: "bold" },
+  heading1: { fontSize: 20, fontWeight: "bold" as const, color: "#1e40af", marginVertical: 8 },
+  heading2: { fontSize: 17, fontWeight: "bold" as const, color: "#2563eb", marginVertical: 6 },
+  heading3: { fontSize: 15, fontWeight: "bold" as const, color: "#3b82f6", marginVertical: 4 },
+  strong: { fontWeight: "bold" as const },
   bullet_list: { marginVertical: 4 },
   list_item: { marginVertical: 2 },
 };

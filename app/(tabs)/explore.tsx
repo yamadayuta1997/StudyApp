@@ -231,10 +231,10 @@ const styles = StyleSheet.create({
 
 const markdownStyles = {
   body: { fontSize: 15, lineHeight: 24, color: "#333" },
-  heading1: { fontSize: 20, fontWeight: "bold", color: "#1e40af", marginVertical: 8 },
-  heading2: { fontSize: 17, fontWeight: "bold", color: "#2563eb", marginVertical: 6 },
-  heading3: { fontSize: 15, fontWeight: "bold", color: "#3b82f6", marginVertical: 4 },
-  strong: { fontWeight: "bold" },
+  heading1: { fontSize: 20, fontWeight: "bold" as const, color: "#1e40af", marginVertical: 8 },
+  heading2: { fontSize: 17, fontWeight: "bold" as const, color: "#2563eb", marginVertical: 6 },
+  heading3: { fontSize: 15, fontWeight: "bold" as const, color: "#3b82f6", marginVertical: 4 },
+  strong: { fontWeight: "bold" as const },
   bullet_list: { marginVertical: 4 },
   list_item: { marginVertical: 2 },
 };

@@ -1,4 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -36,15 +38,22 @@ export default function AnswerScreen() {
   const [fromPage, setFromPage] = useState("1");
   const [toPage, setToPage] = useState("");
 
-  const handlePdfUpload = async (e: any) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handlePdfUpload = async () => {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: "application/pdf",
+      copyToCacheDirectory: true,
+    });
+    if (result.canceled) return;
+
+    const file = result.assets[0];
     setPdfLoading(true);
     setPdfInfo(null);
+
     const formData = new FormData();
-    formData.append("pdf", file);
+    formData.append("pdf", { uri: file.uri, type: "application/pdf", name: file.name } as any);
     if (fromPage) formData.append("fromPage", fromPage);
     if (toPage) formData.append("toPage", toPage);
+
     try {
       const response = await fetch(`${API_BASE_URL}/extract-pdf`, {
         method: "POST",
@@ -61,13 +70,44 @@ export default function AnswerScreen() {
     }
   };
 
-  const handleImageUpload = async (e: any) => {
-    const file = e.target.files[0];
-    if (!file) return;
+  const handleImagePick = async (useCamera: boolean) => {
+    let pickerResult;
+    if (useCamera) {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        setError("カメラの使用許可が必要です。設定から許可してください。");
+        return;
+      }
+      pickerResult = await ImagePicker.launchCameraAsync({
+        mediaTypes: "images",
+        quality: 0.8,
+      });
+    } else {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError("フォトライブラリへのアクセス許可が必要です。");
+        return;
+      }
+      pickerResult = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: "images",
+        quality: 0.8,
+      });
+    }
+
+    if (pickerResult.canceled) return;
+
+    const image = pickerResult.assets[0];
+    const fileName = image.fileName || (useCamera ? "camera.jpg" : "image.jpg");
     setImageLoading(true);
-    setImageFileName(file.name || "画像ファイル");
+    setImageFileName(fileName);
+
     const formData = new FormData();
-    formData.append("image", file);
+    formData.append("image", {
+      uri: image.uri,
+      type: image.mimeType || "image/jpeg",
+      name: fileName,
+    } as any);
+
     try {
       const response = await fetch(`${API_BASE_URL}/extract-image`, {
         method: "POST",
@@ -111,7 +151,7 @@ export default function AnswerScreen() {
       const raw = await AsyncStorage.getItem("history");
       const history = raw ? JSON.parse(raw) : [];
       await AsyncStorage.setItem("history", JSON.stringify([...history, newItem]));
-    } catch (e) {
+    } catch {
       setError("採点に失敗しました。もう一度お試しください。");
     } finally {
       setLoading(false);
@@ -148,21 +188,12 @@ export default function AnswerScreen() {
       <View style={styles.section}>
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>📄 問題文</Text>
-          <label style={{ cursor: "pointer" } as any}>
-            <View style={styles.pdfButton}>
-              {pdfLoading ? (
-                <ActivityIndicator size="small" color="#2563eb" />
-              ) : (
-                <Text style={styles.pdfButtonText}>📎 PDFから読み込む</Text>
-              )}
-            </View>
-            <input
-              type="file"
-              accept="application/pdf"
-              style={{ display: "none" }}
-              onChange={handlePdfUpload}
-            />
-          </label>
+          <TouchableOpacity style={styles.uploadButton} onPress={handlePdfUpload} disabled={pdfLoading}>
+            {pdfLoading
+              ? <ActivityIndicator size="small" color="#2563eb" />
+              : <Text style={styles.uploadButtonText}>📎 PDFから読み込む</Text>
+            }
+          </TouchableOpacity>
         </View>
 
         {/* ページ範囲指定 */}
@@ -192,7 +223,7 @@ export default function AnswerScreen() {
         {pdfInfo && (
           <View style={styles.pdfPreview}>
             <Text style={styles.pdfPreviewText}>
-              全{pdfInfo.totalPages}ページ中 {pdfInfo.fromPage}〜{pdfInfo.toPage}ページを読み込みました
+              全{pdfInfo.totalPages}ページ中 {pdfInfo.fromPage}〜{pdfInfo.toPage}ページ読込済
             </Text>
             <Text style={styles.pdfPreviewText}>{question.length.toLocaleString()} 文字</Text>
           </View>
@@ -215,29 +246,28 @@ export default function AnswerScreen() {
 
         {/* 画像入力ボタン */}
         <View style={styles.imageButtonRow}>
-          <label style={{ flex: 1, cursor: "pointer" } as any}>
-            <View style={[styles.imageButton, { backgroundColor: "#f5f3ff", borderColor: "#c4b5fd" }]}>
-              {imageLoading ? (
-                <ActivityIndicator size="small" color="#7c3aed" />
-              ) : (
-                <Text style={[styles.imageButtonText, { color: "#7c3aed" }]}>🖼 ギャラリーから選択</Text>
-              )}
-            </View>
-            <input type="file" accept="image/*" style={{ display: "none" }} onChange={handleImageUpload} />
-          </label>
-          <label style={{ flex: 1, cursor: "pointer" } as any}>
-            <View style={[styles.imageButton, { backgroundColor: "#fdf4ff", borderColor: "#e879f9" }]}>
-              {imageLoading ? (
-                <ActivityIndicator size="small" color="#a21caf" />
-              ) : (
-                <Text style={[styles.imageButtonText, { color: "#a21caf" }]}>📸 カメラで撮影</Text>
-              )}
-            </View>
-            <input type="file" accept="image/*" capture="camera" style={{ display: "none" }} onChange={handleImageUpload} />
-          </label>
+          <TouchableOpacity
+            style={[styles.imageButton, { backgroundColor: "#f5f3ff", borderColor: "#c4b5fd" }]}
+            onPress={() => handleImagePick(false)}
+            disabled={imageLoading}
+          >
+            {imageLoading
+              ? <ActivityIndicator size="small" color="#7c3aed" />
+              : <Text style={[styles.imageButtonText, { color: "#7c3aed" }]}>🖼 ギャラリーから選択</Text>
+            }
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.imageButton, { backgroundColor: "#fdf4ff", borderColor: "#e879f9" }]}
+            onPress={() => handleImagePick(true)}
+            disabled={imageLoading}
+          >
+            {imageLoading
+              ? <ActivityIndicator size="small" color="#a21caf" />
+              : <Text style={[styles.imageButtonText, { color: "#a21caf" }]}>📸 カメラで撮影</Text>
+            }
+          </TouchableOpacity>
         </View>
 
-        {/* OCR処理中・完了表示 */}
         {imageLoading && (
           <View style={styles.ocrStatus}>
             <ActivityIndicator size="small" color="#7c3aed" />
@@ -267,11 +297,10 @@ export default function AnswerScreen() {
         onPress={handleSubmit}
         disabled={!isReady || loading}
       >
-        {loading ? (
-          <ActivityIndicator size="small" color="#fff" />
-        ) : (
-          <Text style={styles.buttonText}>🎯 採点する</Text>
-        )}
+        {loading
+          ? <ActivityIndicator size="small" color="#fff" />
+          : <Text style={styles.buttonText}>🎯 採点する</Text>
+        }
       </TouchableOpacity>
 
       {!isReady && <Text style={styles.hint}>問題文と答案を入力してください</Text>}
@@ -346,15 +375,17 @@ const styles = StyleSheet.create({
   subjectButtonActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
   subjectText: { color: "#64748b", fontSize: 13, fontWeight: "600" },
   subjectTextActive: { color: "#fff" },
-  pdfButton: {
+  uploadButton: {
     backgroundColor: "#eff6ff",
     paddingVertical: 6,
     paddingHorizontal: 12,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#bfdbfe",
+    minWidth: 44,
+    alignItems: "center",
   },
-  pdfButtonText: { color: "#2563eb", fontSize: 13, fontWeight: "600" },
+  uploadButtonText: { color: "#2563eb", fontSize: 13, fontWeight: "600" },
   pageRangeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -401,6 +432,7 @@ const styles = StyleSheet.create({
   charCount: { fontSize: 12, color: "#94a3b8", textAlign: "right", marginTop: 6 },
   imageButtonRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
   imageButton: {
+    flex: 1,
     paddingVertical: 10,
     paddingHorizontal: 8,
     borderRadius: 10,

@@ -21,6 +21,8 @@ const MAPPING = {
   'pencil.and.outline': 'edit',
   'chart.bar.fill': 'bar-chart',
   'list.bullet': 'format-list-bulleted',
+  'book.fill': 'menu-book',
+  'calendar': 'event',
 } as IconMapping;
 
 /**

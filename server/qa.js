@@ -1,112 +1,69 @@
-const BASE_URL = process.env.QA_BASE_URL || "https://studyapp-production-66d5.up.railway.app";
-const WAIT_BEFORE_START = 60000;
-const RETRY_WAIT = 30000;
+const BASE = "https://studyapp-production-66d5.up.railway.app";
 const MAX_RETRY = 3;
 
-function sleep(ms) {
-  return new Promise(r => setTimeout(r, ms));
-}
+async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function runTests() {
   const results = [];
-
-  // Test 1: health
+  // 1. ヘルスチェック
   try {
-    const res = await fetch(`${BASE_URL}/health`);
-    const data = await res.json();
-    results.push({ name: "health", pass: data.status === "ok", detail: JSON.stringify(data) });
-  } catch (e) {
-    results.push({ name: "health", pass: false, detail: e.message });
-  }
-
-  // Test 2: grade + topics extraction
+    const r = await fetch(`${BASE}/health`);
+    const d = await r.json();
+    results.push({ test: "health", ok: d.status === "ok", detail: d });
+  } catch(e) { results.push({ test: "health", ok: false, detail: e.message }); }
+  // 2. 教科書リスト取得
   try {
-    const res = await fetch(`${BASE_URL}/grade`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        question: "のれんの定義を述べよ。",
-        answer: "のれんとは、企業結合において取得した被取得企業の純資産の公正価値を超えて支払った対価の超過額である。",
-        subject: "財務会計論",
-      }),
-    });
-    const data = await res.json();
-    const pass = typeof data.result === "string" && data.result.length > 0 && Array.isArray(data.topics);
-    results.push({
-      name: "grade+topics",
-      pass,
-      detail: `score=${data.score}, topics=${JSON.stringify(data.topics)}, wrongTopics=${JSON.stringify(data.wrongTopics)}`,
-    });
-  } catch (e) {
-    results.push({ name: "grade+topics", pass: false, detail: e.message });
-  }
-
-  // Test 3: study-tip
+    const r = await fetch(`${BASE}/textbook/list`);
+    const d = await r.json();
+    results.push({ test: "textbook/list", ok: Array.isArray(d.books), detail: `${d.books?.length}件` });
+  } catch(e) { results.push({ test: "textbook/list", ok: false, detail: e.message }); }
+  // 3. 採点API（論点・解説まとめ確認）
   try {
-    const res = await fetch(`${BASE_URL}/study-tip`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ subject: "監査論", avgScore: 55 }),
+    const r = await fetch(`${BASE}/grade`, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ subject: "財務会計論", question: "減価償却の目的を説明しなさい。", answer: "固定資産の取得原価を耐用年数にわたって費用配分すること。", bookIds: [] })
     });
-    const data = await res.json();
-    const pass = typeof data.tip === "string" && data.tip.length > 0;
-    results.push({ name: "study-tip", pass, detail: `tip length=${data.tip?.length}` });
-  } catch (e) {
-    results.push({ name: "study-tip", pass: false, detail: e.message });
-  }
-
-  // Test 4: chat
+    const d = await r.json();
+    const ok = !!d.result && d.score !== undefined && Array.isArray(d.topics) && d.summary !== undefined;
+    results.push({ test: "grade+summary", ok, detail: { score: d.score, summary: d.summary?.slice(0,30), refPages: d.refPages }});
+  } catch(e) { results.push({ test: "grade+summary", ok: false, detail: e.message }); }
+  // 4. study-tip
   try {
-    const res = await fetch(`${BASE_URL}/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        messages: [{ role: "user", content: "のれんの償却について教えてください。" }],
-        subject: "財務会計論",
-        context: "のれんの問題に関する採点結果",
-      }),
-    });
-    const data = await res.json();
-    const pass = typeof data.reply === "string" && data.reply.length > 0;
-    results.push({ name: "chat", pass, detail: `reply length=${data.reply?.length}` });
-  } catch (e) {
-    results.push({ name: "chat", pass: false, detail: e.message });
-  }
-
+    const r = await fetch(`${BASE}/study-tip`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ subject: "監査論", avgScore: 55 }) });
+    const d = await r.json();
+    results.push({ test: "study-tip", ok: !!d.tip, detail: d.tip?.slice(0,30) });
+  } catch(e) { results.push({ test: "study-tip", ok: false, detail: e.message }); }
+  // 5. chat API
+  try {
+    const r = await fetch(`${BASE}/chat`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ subject: "財務会計論", context: "減価償却で80%", messages: [{ role: "user", content: "定率法と定額法の違いは？" }] }) });
+    const d = await r.json();
+    results.push({ test: "chat", ok: !!d.reply, detail: d.reply?.slice(0,30) });
+  } catch(e) { results.push({ test: "chat", ok: false, detail: e.message }); }
+  // 6. textbook/search
+  try {
+    const r = await fetch(`${BASE}/textbook/search`, { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ query: "減価償却" }) });
+    const d = await r.json();
+    results.push({ test: "textbook/search", ok: Array.isArray(d.results), detail: `${d.results?.length}件ヒット` });
+  } catch(e) { results.push({ test: "textbook/search", ok: false, detail: e.message }); }
   return results;
 }
 
 async function main() {
-  console.log(`\n🔍 自動QA開始 - BASE_URL: ${BASE_URL}`);
-  console.log(`⏳ Railwayデプロイ完了を待機中... (${WAIT_BEFORE_START / 1000}秒)`);
-  await sleep(WAIT_BEFORE_START);
-
-  let attempt = 0;
-  while (attempt < MAX_RETRY) {
-    attempt++;
-    console.log(`\n🧪 テスト実行 (${attempt}/${MAX_RETRY})`);
+  for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+    console.log(`\n===== QA実行 (${attempt}/${MAX_RETRY}) =====`);
+    console.log("Railwayデプロイ完了を60秒待機...");
+    await sleep(60000);
     const results = await runTests();
-
-    let allPass = true;
+    let allOk = true;
     results.forEach(r => {
-      const icon = r.pass ? "✅" : "❌";
-      console.log(`  ${icon} ${r.name}: ${r.detail}`);
-      if (!r.pass) allPass = false;
+      const icon = r.ok ? "✅" : "❌";
+      console.log(`${icon} ${r.test}: ${JSON.stringify(r.detail)}`);
+      if (!r.ok) allOk = false;
     });
-
-    if (allPass) {
-      console.log("\n🎉 全テスト合格！");
-      process.exit(0);
-    }
-
-    if (attempt < MAX_RETRY) {
-      console.log(`\n⚠️ 失敗あり。${RETRY_WAIT / 1000}秒後にリトライ...`);
-      await sleep(RETRY_WAIT);
-    }
+    if (allOk) { console.log("\n🎉 全テスト合格！"); process.exit(0); }
+    else if (attempt < MAX_RETRY) { console.log(`\n⚠️ 失敗あり。30秒後にリトライ...`); await sleep(30000); }
   }
-
-  console.log("\n💥 最大リトライ回数に達しました。QA失敗。");
+  console.log("\n❌ QA最終失敗。ログを確認してください。");
   process.exit(1);
 }
-
 main();

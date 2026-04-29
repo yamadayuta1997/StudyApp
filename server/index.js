@@ -2,6 +2,8 @@ const express = require("express");
 const cors = require("cors");
 const Anthropic = require("@anthropic-ai/sdk");
 const multer = require("multer");
+const fs = require("fs");
+const path = require("path");
 
 const app = express();
 app.use(cors());
@@ -10,6 +12,37 @@ app.use(express.json({ limit: "20mb" }));
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
+// ---- Textbook cache with Volume persistence ----
+const DATA_DIR = "/app/data";
+const TEXTBOOKS_FILE = path.join(DATA_DIR, "textbooks.json");
+
+let textbookCache = new Map();
+
+function loadTextbookCache() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (fs.existsSync(TEXTBOOKS_FILE)) {
+      const data = JSON.parse(fs.readFileSync(TEXTBOOKS_FILE, "utf8"));
+      textbookCache = new Map(Array.isArray(data) ? data : []);
+    }
+  } catch (e) {
+    console.error("textbook cache load error:", e.message);
+    textbookCache = new Map();
+  }
+}
+
+function saveTextbookCache() {
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(TEXTBOOKS_FILE, JSON.stringify([...textbookCache]));
+  } catch (e) {
+    console.error("textbook cache save error:", e.message);
+  }
+}
+
+loadTextbookCache();
+
+// ---- pdfjs cache ----
 let _pdfjsLib = null;
 async function getPdfjsLib() {
   if (!_pdfjsLib) {
@@ -19,62 +52,183 @@ async function getPdfjsLib() {
   return _pdfjsLib;
 }
 
+// ---- Health ----
 app.get("/health", (req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// 採点 + 得点率・論点・誤答論点を返す
+// ---- Textbook: Register ----
+app.post("/textbook/register", upload.single("pdf"), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "PDFファイルが必要です。" });
+    const { subject, bookName, description = "" } = req.body;
+    if (!subject || !bookName) return res.status(400).json({ error: "subject・bookName は必須です。" });
+
+    const pdfjsLib = await getPdfjsLib();
+    let pdfDocument;
+    try {
+      pdfDocument = await pdfjsLib.getDocument({
+        data: new Uint8Array(req.file.buffer),
+        useWorkerFetch: false,
+        isEvalSupported: false,
+        useSystemFonts: true,
+      }).promise;
+    } catch (e) {
+      return res.status(400).json({ error: `PDF解析失敗: ${e.message}`, code: "PARSE_ERROR" });
+    }
+
+    const totalPages = pdfDocument.numPages;
+    const pages = [];
+    for (let i = 1; i <= totalPages; i++) {
+      const page = await pdfDocument.getPage(i);
+      const textContent = await page.getTextContent();
+      const text = textContent.items.filter(item => "str" in item).map(item => item.str).join(" ").trim();
+      if (text) pages.push({ pageNum: i, text });
+    }
+
+    const bookId = `${subject}_${bookName}`;
+    textbookCache.set(bookId, { subject, bookName, description, pages, registeredAt: new Date().toISOString() });
+    saveTextbookCache();
+
+    res.json({ ok: true, bookId, totalPages, subject, bookName });
+  } catch (e) {
+    console.error("/textbook/register error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- Textbook: List ----
+app.get("/textbook/list", (req, res) => {
+  const books = [];
+  for (const [bookId, book] of textbookCache.entries()) {
+    books.push({
+      bookId,
+      subject: book.subject,
+      bookName: book.bookName,
+      description: book.description,
+      totalPages: book.pages.length,
+      registeredAt: book.registeredAt,
+    });
+  }
+  res.json({ books });
+});
+
+// ---- Textbook: Delete ----
+app.delete("/textbook/:bookId", (req, res) => {
+  const bookId = decodeURIComponent(req.params.bookId);
+  if (!textbookCache.has(bookId)) return res.status(404).json({ error: "教科書が見つかりません。" });
+  textbookCache.delete(bookId);
+  saveTextbookCache();
+  res.json({ ok: true });
+});
+
+// ---- Textbook: Search ----
+app.post("/textbook/search", (req, res) => {
+  try {
+    const { query, subject } = req.body;
+    if (!query) return res.status(400).json({ error: "query は必須です。" });
+
+    const results = [];
+    for (const [bookId, book] of textbookCache.entries()) {
+      if (subject && book.subject !== subject) continue;
+      for (const page of book.pages) {
+        const idx = page.text.indexOf(query);
+        if (idx !== -1) {
+          const start = Math.max(0, idx - 100);
+          const end = Math.min(page.text.length, idx + query.length + 100);
+          results.push({
+            bookId,
+            bookName: book.bookName,
+            subject: book.subject,
+            pageNum: page.pageNum,
+            excerpt: page.text.slice(start, end),
+          });
+          if (results.length >= 10) break;
+        }
+      }
+      if (results.length >= 10) break;
+    }
+    res.json({ results });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- Grade ----
 app.post("/grade", async (req, res) => {
   try {
-    const { question, answer, subject } = req.body;
+    const { question, answer, subject, bookIds = [], answerImages = [] } = req.body;
     if (!question || !answer || !subject) {
       return res.status(400).json({ error: "question・answer・subject は必須です。" });
     }
+
+    // Build textbook context
+    let bookContext = "";
+    for (const bookId of bookIds) {
+      const book = textbookCache.get(bookId);
+      if (book) {
+        for (const page of book.pages) {
+          bookContext += `【参考教材】\n${book.bookName} p.${page.pageNum}:\n${page.text}\n\n`;
+        }
+      }
+    }
+
+    const userContent = [];
+    if (bookContext) {
+      userContent.push({ type: "text", text: `${bookContext}\n---\n` });
+    }
+    for (const imgBase64 of answerImages) {
+      userContent.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: imgBase64 } });
+    }
+
+    const promptText = `あなたは公認会計士試験の採点官です。科目は「${subject}」です。以下の問題と答案を採点してください。\n\n【問題】\n${question}\n\n【答案】\n${answer}\n\n${answerImages.length > 0 ? "答案に画像・図が含まれています。その内容も採点対象にしてください。図の正確性・凡例・単位なども評価してください。\n\n" : ""}正誤判定と改善点を丁寧に説明してください。採点・フィードバック後、以下を必ず記載:\n【得点率】XX%\n【論点】論点名1, 論点名2（主要論点を3つ以内でカンマ区切り）\n【誤答論点】論点名（間違えた論点。完答なら「なし」）\n${bookIds.length > 0 ? "【参考ページ】教科書名 p.XX（参照教材の中で関連するページがあれば・複数可）\n" : ""}【解説まとめ】この問題で押さえるべきポイントを3行以内で`;
+
+    userContent.push({ type: "text", text: promptText });
+
     const message = await client.messages.create({
       model: "claude-sonnet-4-5",
       max_tokens: 1500,
-      messages: [{
-        role: "user",
-        content: `あなたは公認会計士試験の採点官です。科目は「${subject}」です。以下の問題と答案を採点してください。\n\n【問題】\n${question}\n\n【答案】\n${answer}\n\n正誤判定と改善点を丁寧に説明してください。最後に必ず以下の形式で記載してください：\n【得点率】XX%\n【論点】論点名1, 論点名2（この問題で問われた主要な論点を3つ以内でカンマ区切り）\n【誤答論点】論点名（間違えた・不十分だった論点。完答の場合は「なし」）`,
-      }],
+      messages: [{ role: "user", content: userContent }],
     });
     const resultText = message.content[0].text;
+
     const scoreMatch = resultText.match(/【得点率】(\d+)%/);
     const score = scoreMatch ? parseInt(scoreMatch[1]) : null;
     const topicsMatch = resultText.match(/【論点】(.+)/);
     const wrongMatch = resultText.match(/【誤答論点】(.+)/);
+    const refMatchAll = resultText.match(/【参考ページ】(.+)/g);
+    const summaryMatch = resultText.match(/【解説まとめ】([\s\S]+?)(?=【|$)/);
+
     const topics = topicsMatch ? topicsMatch[1].split(",").map(s => s.trim()).filter(Boolean) : [];
     const wrongTopics = wrongMatch && wrongMatch[1].trim() !== "なし"
-      ? wrongMatch[1].split(",").map(s => s.trim()).filter(Boolean)
-      : [];
-    res.json({ result: resultText, score, topics, wrongTopics });
+      ? wrongMatch[1].split(",").map(s => s.trim()).filter(Boolean) : [];
+    const refPages = refMatchAll ? refMatchAll.map(m => m.replace("【参考ページ】", "").trim()) : [];
+    const summary = summaryMatch ? summaryMatch[1].trim() : "";
+
+    res.json({ result: resultText, score, topics, wrongTopics, refPages, summary });
   } catch (e) {
     console.error("/grade error:", e.message);
     res.status(500).json({ error: e.message });
   }
 });
 
-// PDF抽出（ページ範囲指定対応）
+// ---- Extract PDF ----
 app.post("/extract-pdf", upload.single("pdf"), async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({
-        error: "PDFファイルを受信できませんでした。ファイルが正しく送信されているか確認してください。",
-        code: "NO_FILE",
-      });
+      return res.status(400).json({ error: "PDFファイルを受信できませんでした。", code: "NO_FILE" });
     }
     const fromPage = Math.max(1, parseInt(req.body.fromPage) || 1);
     const toPageReq = parseInt(req.body.toPage) || null;
     const pdfjsLib = await getPdfjsLib();
     let pdfDocument;
     try {
-      const loadingTask = pdfjsLib.getDocument({
+      pdfDocument = await pdfjsLib.getDocument({
         data: new Uint8Array(req.file.buffer),
         useWorkerFetch: false,
         isEvalSupported: false,
         useSystemFonts: true,
-      });
-      pdfDocument = await loadingTask.promise;
+      }).promise;
     } catch (pdfErr) {
       return res.status(400).json({
         error: `PDFの解析に失敗しました: ${pdfErr.message}。パスワード保護PDFは読み込めません。`,
@@ -90,26 +244,95 @@ app.post("/extract-pdf", upload.single("pdf"), async (req, res) => {
     }
     const endPage = toPageReq ? Math.min(toPageReq, totalPages) : totalPages;
     let fullText = "";
+    const imagePages = [];
+
     for (let i = fromPage; i <= endPage; i++) {
       const page = await pdfDocument.getPage(i);
       const textContent = await page.getTextContent();
       const pageText = textContent.items.filter(item => "str" in item).map(item => item.str).join(" ").trim();
-      if (pageText) fullText += `--- ${i}ページ ---\n${pageText}\n\n`;
+
+      let pageOutput = pageText;
+      let hasImages = false;
+
+      try {
+        const ops = await page.getOperatorList();
+        const imgOps = [pdfjsLib.OPS?.paintImageXObject, pdfjsLib.OPS?.paintInlineImageXObject].filter(Boolean);
+        hasImages = imgOps.length > 0 && ops.fnArray.some(fn => imgOps.includes(fn));
+      } catch {}
+
+      if (hasImages) {
+        pageOutput += "\n【このページには図・画像が含まれています】";
+        imagePages.push(i);
+      } else if (pageText.length < 100) {
+        imagePages.push(i);
+      }
+
+      if (pageOutput.trim()) fullText += `--- ${i}ページ ---\n${pageOutput}\n\n`;
     }
+
     if (!fullText.trim()) {
       return res.status(400).json({
         error: "PDFからテキストを抽出できませんでした。スキャン画像型PDFの場合は「カメラで撮影」機能をご利用ください。",
         code: "NO_TEXT",
       });
     }
-    res.json({ text: fullText, totalPages, fromPage, toPage: endPage });
+    res.json({ text: fullText, totalPages, fromPage, toPage: endPage, imagePages });
   } catch (e) {
     console.error("/extract-pdf error:", e.message);
     res.status(500).json({ error: `サーバーエラー: ${e.message}`, code: "SERVER_ERROR" });
   }
 });
 
-// 画像（写真・手書き答案）からテキスト抽出
+// ---- Extract PDF Image (single page OCR via vision) ----
+app.post("/extract-pdf-image", upload.single("pdf"), async (req, res) => {
+  const pageNum = parseInt(req.body?.pageNum) || 1;
+  try {
+    if (!req.file) return res.status(400).json({ error: "PDFファイルが必要です。" });
+
+    let canvasLib = null;
+    try { canvasLib = require("canvas"); } catch {}
+
+    if (!canvasLib) {
+      return res.json({
+        text: `【ページ${pageNum} - 画像レンダリング非対応】テキスト抽出のみ対応しています。`,
+        pageNum,
+      });
+    }
+
+    const pdfjsLib = await getPdfjsLib();
+    const pdfDocument = await pdfjsLib.getDocument({
+      data: new Uint8Array(req.file.buffer),
+      useWorkerFetch: false,
+      isEvalSupported: false,
+      useSystemFonts: true,
+    }).promise;
+
+    const page = await pdfDocument.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 2.0 });
+    const canvas = canvasLib.createCanvas(viewport.width, viewport.height);
+    const context = canvas.getContext("2d");
+    await page.render({ canvasContext: context, viewport }).promise;
+
+    const imageBase64 = canvas.toBuffer("image/jpeg").toString("base64");
+    const message = await client.messages.create({
+      model: "claude-sonnet-4-5",
+      max_tokens: 4096,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: imageBase64 } },
+          { type: "text", text: "この画像を最高精度でOCRしてください。手書き・印刷・数式・表・図説明をすべて転写。余分な説明は不要です。" },
+        ],
+      }],
+    });
+    res.json({ text: message.content[0].text, pageNum });
+  } catch (e) {
+    console.error("/extract-pdf-image error:", e.message);
+    res.json({ text: `【ページ${pageNum} - レンダリング失敗: ${e.message}】`, pageNum });
+  }
+});
+
+// ---- Extract Image (OCR) ----
 app.post("/extract-image", upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
@@ -119,12 +342,15 @@ app.post("/extract-image", upload.single("image"), async (req, res) => {
     const mediaType = req.file.mimetype || "image/jpeg";
     const message = await client.messages.create({
       model: "claude-sonnet-4-5",
-      max_tokens: 2048,
+      max_tokens: 4096,
       messages: [{
         role: "user",
         content: [
           { type: "image", source: { type: "base64", media_type: mediaType, data: imageBase64 } },
-          { type: "text", text: "この画像に書かれている答案・文字をすべて正確にテキストとして書き起こしてください。数式・記号・箇条書きも含めてできる限り忠実に転写してください。余分な説明は不要です。" },
+          {
+            type: "text",
+            text: "この画像を最高精度でOCRしてください。\n・手書き文字・印刷文字・数式・記号・表・図のキャプションをすべて転写\n・数式はそのままの形で転写（例: ∑, ≦, →, ÷）\n・表は｜で区切って構造を保持\n・図・グラフが含まれる場合は【図説明】として内容を言語化\n・ページ番号・ヘッダー・フッターも含める\n・不鮮明な箇所は【不明】と記載\n余分な説明は不要です。転写結果のみ出力してください。",
+          },
         ],
       }],
     });
@@ -135,7 +361,7 @@ app.post("/extract-image", upload.single("image"), async (req, res) => {
   }
 });
 
-// 苦手科目の学習アドバイス
+// ---- Study Tip ----
 app.post("/study-tip", async (req, res) => {
   try {
     const { subject, avgScore } = req.body;
@@ -156,7 +382,7 @@ app.post("/study-tip", async (req, res) => {
   }
 });
 
-// 採点後の質問チャット
+// ---- Chat ----
 app.post("/chat", async (req, res) => {
   try {
     const { messages, subject, context } = req.body;

@@ -1,0 +1,10 @@
+node_modules
+server/node_modules
+app/
+assets/
+components/
+constants/
+hooks/
+scripts/
+*.md
+.git

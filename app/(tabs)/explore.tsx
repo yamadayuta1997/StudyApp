@@ -1,112 +1,240 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
+import {
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import Markdown from "react-native-markdown-display";
 
-import { Collapsible } from '@/components/ui/collapsible';
-import { ExternalLink } from '@/components/external-link';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Fonts } from '@/constants/theme';
+export type HistoryItem = {
+  id: string;
+  subject: string;
+  question: string;
+  answer: string;
+  result: string;
+  score: number | null;
+  date: string;
+};
 
-export default function TabTwoScreen() {
+function ScoreBadge({ score }: { score: number | null }) {
+  if (score === null) return null;
+  const color = score >= 70 ? "#16a34a" : score >= 50 ? "#d97706" : "#dc2626";
+  const bg = score >= 70 ? "#dcfce7" : score >= 50 ? "#fef3c7" : "#fee2e2";
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#D0D0D0', dark: '#353636' }}
-      headerImage={
-        <IconSymbol
-          size={310}
-          color="#808080"
-          name="chevron.left.forwardslash.chevron.right"
-          style={styles.headerImage}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText
-          type="title"
-          style={{
-            fontFamily: Fonts.rounded,
-          }}>
-          Explore
-        </ThemedText>
-      </ThemedView>
-      <ThemedText>This app includes example code to help you get started.</ThemedText>
-      <Collapsible title="File-based routing">
-        <ThemedText>
-          This app has two screens:{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">app/(tabs)/explore.tsx</ThemedText>
-        </ThemedText>
-        <ThemedText>
-          The layout file in <ThemedText type="defaultSemiBold">app/(tabs)/_layout.tsx</ThemedText>{' '}
-          sets up the tab navigator.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/router/introduction">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Android, iOS, and web support">
-        <ThemedText>
-          You can open this project on Android, iOS, and the web. To open the web version, press{' '}
-          <ThemedText type="defaultSemiBold">w</ThemedText> in the terminal running this project.
-        </ThemedText>
-      </Collapsible>
-      <Collapsible title="Images">
-        <ThemedText>
-          For static images, you can use the <ThemedText type="defaultSemiBold">@2x</ThemedText> and{' '}
-          <ThemedText type="defaultSemiBold">@3x</ThemedText> suffixes to provide files for
-          different screen densities
-        </ThemedText>
-        <Image
-          source={require('@/assets/images/react-logo.png')}
-          style={{ width: 100, height: 100, alignSelf: 'center' }}
-        />
-        <ExternalLink href="https://reactnative.dev/docs/images">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Light and dark mode components">
-        <ThemedText>
-          This template has light and dark mode support. The{' '}
-          <ThemedText type="defaultSemiBold">useColorScheme()</ThemedText> hook lets you inspect
-          what the user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-        </ThemedText>
-        <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-          <ThemedText type="link">Learn more</ThemedText>
-        </ExternalLink>
-      </Collapsible>
-      <Collapsible title="Animations">
-        <ThemedText>
-          This template includes an example of an animated component. The{' '}
-          <ThemedText type="defaultSemiBold">components/HelloWave.tsx</ThemedText> component uses
-          the powerful{' '}
-          <ThemedText type="defaultSemiBold" style={{ fontFamily: Fonts.mono }}>
-            react-native-reanimated
-          </ThemedText>{' '}
-          library to create a waving hand animation.
-        </ThemedText>
-        {Platform.select({
-          ios: (
-            <ThemedText>
-              The <ThemedText type="defaultSemiBold">components/ParallaxScrollView.tsx</ThemedText>{' '}
-              component provides a parallax effect for the header image.
-            </ThemedText>
-          ),
-        })}
-      </Collapsible>
-    </ParallaxScrollView>
+    <View style={[styles.scoreBadge, { backgroundColor: bg, borderColor: color }]}>
+      <Text style={[styles.scoreBadgeText, { color }]}>{score}%</Text>
+    </View>
+  );
+}
+
+export default function HistoryScreen() {
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [selected, setSelected] = useState<HistoryItem | null>(null);
+  const [filterSubject, setFilterSubject] = useState<string | null>(null);
+
+  const loadHistory = async () => {
+    const raw = await AsyncStorage.getItem("history");
+    if (raw) setHistory(JSON.parse(raw));
+  };
+
+  useFocusEffect(useCallback(() => { loadHistory(); }, []));
+
+  const deleteItem = async (id: string) => {
+    const newHistory = history.filter((h) => h.id !== id);
+    setHistory(newHistory);
+    await AsyncStorage.setItem("history", JSON.stringify(newHistory));
+    setSelected(null);
+  };
+
+  const subjects = [...new Set(history.map(h => h.subject))];
+
+  const filtered = filterSubject
+    ? history.filter(h => h.subject === filterSubject)
+    : history;
+
+  return (
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.title}>📋 採点履歴</Text>
+
+      {/* 科目フィルター */}
+      {subjects.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterRow}>
+          <TouchableOpacity
+            style={[styles.filterChip, filterSubject === null && styles.filterChipActive]}
+            onPress={() => setFilterSubject(null)}
+          >
+            <Text style={[styles.filterChipText, filterSubject === null && styles.filterChipTextActive]}>
+              すべて
+            </Text>
+          </TouchableOpacity>
+          {subjects.map(s => (
+            <TouchableOpacity
+              key={s}
+              style={[styles.filterChip, filterSubject === s && styles.filterChipActive]}
+              onPress={() => setFilterSubject(s)}
+            >
+              <Text style={[styles.filterChipText, filterSubject === s && styles.filterChipTextActive]}>{s}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
+
+      {filtered.length === 0 && (
+        <Text style={styles.empty}>まだ履歴がありません</Text>
+      )}
+
+      {filtered.slice().reverse().map((item) => (
+        <TouchableOpacity key={item.id} style={styles.card} onPress={() => setSelected(item)}>
+          <View style={styles.cardHeader}>
+            <Text style={styles.subject}>{item.subject}</Text>
+            <View style={styles.cardHeaderRight}>
+              <ScoreBadge score={item.score} />
+              <Text style={styles.date}>{item.date}</Text>
+            </View>
+          </View>
+          <Text style={styles.question} numberOfLines={2}>{item.question}</Text>
+          <Text style={styles.result} numberOfLines={3}>{item.result}</Text>
+          <Text style={styles.tapHint}>タップして詳細を見る →</Text>
+        </TouchableOpacity>
+      ))}
+
+      {/* 詳細モーダル */}
+      <Modal visible={selected !== null} animationType="slide" onRequestClose={() => setSelected(null)}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <View>
+              <Text style={styles.modalSubject}>{selected?.subject}</Text>
+              <Text style={styles.modalDate}>{selected?.date}</Text>
+            </View>
+            {selected?.score !== null && selected?.score !== undefined && (
+              <View style={styles.modalScoreBadge}>
+                <Text style={styles.modalScoreText}>{selected.score}%</Text>
+              </View>
+            )}
+          </View>
+
+          <ScrollView style={styles.modalScroll}>
+            <Text style={styles.sectionLabel}>📄 問題文</Text>
+            <Text style={styles.sectionText}>{selected?.question}</Text>
+
+            <Text style={styles.sectionLabel}>✏️ あなたの答案</Text>
+            <Text style={styles.sectionText}>{selected?.answer}</Text>
+
+            <Text style={styles.sectionLabel}>📊 採点結果</Text>
+            <Markdown style={markdownStyles}>{selected?.result ?? ""}</Markdown>
+          </ScrollView>
+
+          <View style={styles.modalFooter}>
+            <TouchableOpacity style={styles.closeButton} onPress={() => setSelected(null)}>
+              <Text style={styles.closeButtonText}>閉じる</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.deleteButtonModal}
+              onPress={() => selected && deleteItem(selected.id)}
+            >
+              <Text style={styles.deleteButtonModalText}>削除</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerImage: {
-    color: '#808080',
-    bottom: -90,
-    left: -35,
-    position: 'absolute',
+  container: { padding: 24, backgroundColor: "#f5f5f5" },
+  title: { fontSize: 24, fontWeight: "bold", marginBottom: 16, textAlign: "center" },
+  filterRow: { marginBottom: 16 },
+  filterChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#f8fafc",
+    marginRight: 8,
   },
-  titleContainer: {
-    flexDirection: 'row',
-    gap: 8,
+  filterChipActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
+  filterChipText: { color: "#64748b", fontSize: 13, fontWeight: "600" },
+  filterChipTextActive: { color: "#fff" },
+  empty: { textAlign: "center", color: "#999", fontSize: 16, marginTop: 40 },
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#ddd",
   },
+  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  cardHeaderRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+  subject: { fontWeight: "bold", color: "#2563eb", fontSize: 14 },
+  date: { color: "#999", fontSize: 12 },
+  scoreBadge: {
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  scoreBadgeText: { fontSize: 12, fontWeight: "bold" },
+  question: { fontSize: 14, color: "#333", marginBottom: 8 },
+  result: { fontSize: 13, color: "#666", marginBottom: 4 },
+  tapHint: { fontSize: 12, color: "#2563eb", textAlign: "right", marginTop: 4 },
+  modalContainer: { flex: 1, backgroundColor: "#f5f5f5" },
+  modalHeader: {
+    backgroundColor: "#2563eb",
+    padding: 24,
+    paddingTop: 60,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+  },
+  modalSubject: { color: "#fff", fontSize: 20, fontWeight: "bold" },
+  modalDate: { color: "#bfdbfe", fontSize: 13 },
+  modalScoreBadge: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
+  modalScoreText: { color: "#2563eb", fontSize: 20, fontWeight: "bold" },
+  modalScroll: { flex: 1, padding: 20 },
+  sectionLabel: { fontSize: 15, fontWeight: "bold", color: "#2563eb", marginTop: 16, marginBottom: 8 },
+  sectionText: {
+    fontSize: 14,
+    color: "#333",
+    lineHeight: 22,
+    backgroundColor: "#fff",
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
+  },
+  modalFooter: {
+    flexDirection: "row",
+    padding: 20,
+    gap: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#e5e7eb",
+    backgroundColor: "#fff",
+  },
+  closeButton: { flex: 1, backgroundColor: "#2563eb", padding: 14, borderRadius: 10, alignItems: "center" },
+  closeButtonText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+  deleteButtonModal: { flex: 1, backgroundColor: "#fee2e2", padding: 14, borderRadius: 10, alignItems: "center" },
+  deleteButtonModalText: { color: "#dc2626", fontWeight: "bold", fontSize: 16 },
 });
+
+const markdownStyles = {
+  body: { fontSize: 15, lineHeight: 24, color: "#333" },
+  heading1: { fontSize: 20, fontWeight: "bold", color: "#1e40af", marginVertical: 8 },
+  heading2: { fontSize: 17, fontWeight: "bold", color: "#2563eb", marginVertical: 6 },
+  heading3: { fontSize: 15, fontWeight: "bold", color: "#3b82f6", marginVertical: 4 },
+  strong: { fontWeight: "bold" },
+  bullet_list: { marginVertical: 4 },
+  list_item: { marginVertical: 2 },
+};

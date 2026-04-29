@@ -1,98 +1,333 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useRouter } from "expo-router";
+import { useFocusEffect } from "expo-router";
+import { useCallback, useState } from "react";
+import {
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+const API_BASE_URL = "https://studyapp-production-66d5.up.railway.app";
+
+const SUBJECTS = ["財務会計論", "管理会計論", "監査論", "企業法", "租税法", "経営学"];
+
+type DashboardStats = {
+  totalCount: number;
+  todayCount: number;
+  streak: number;
+  avgScore: number | null;
+  weakestSubject: string | null;
+  recentSubjects: string[];
+};
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const router = useRouter();
+  const [stats, setStats] = useState<DashboardStats>({
+    totalCount: 0,
+    todayCount: 0,
+    streak: 0,
+    avgScore: null,
+    weakestSubject: null,
+    recentSubjects: [],
+  });
+  const [dailyTip, setDailyTip] = useState("");
+  const [tipLoading, setTipLoading] = useState(false);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  useFocusEffect(useCallback(() => {
+    loadStats();
+  }, []));
+
+  const loadStats = async () => {
+    const raw = await AsyncStorage.getItem("history");
+    const history = raw ? JSON.parse(raw) : [];
+    const today = new Date().toLocaleDateString("ja-JP");
+
+    const todayItems = history.filter((h: any) => h.date === today);
+    const validScores = history.filter((h: any) => h.score !== null && h.score !== undefined);
+    const avgScore = validScores.length > 0
+      ? Math.round(validScores.reduce((a: number, b: any) => a + b.score, 0) / validScores.length)
+      : null;
+
+    // 連続学習日数
+    const dates = [...new Set(history.map((h: any) => h.date))] as string[];
+    let streak = 0;
+    const checkDate = new Date();
+    for (let i = 0; i < 30; i++) {
+      const d = checkDate.toLocaleDateString("ja-JP");
+      if (dates.includes(d)) {
+        streak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else if (i === 0) {
+        // 今日やっていなければ昨日からカウント
+        checkDate.setDate(checkDate.getDate() - 1);
+      } else {
+        break;
+      }
+    }
+
+    // 苦手科目
+    const subjectScores: Record<string, number[]> = {};
+    SUBJECTS.forEach(s => subjectScores[s] = []);
+    history.forEach((h: any) => {
+      if (h.subject && h.score !== null && h.score !== undefined) {
+        subjectScores[h.subject]?.push(h.score);
+      }
+    });
+    let weakest: string | null = null;
+    let lowestAvg = 101;
+    SUBJECTS.forEach(s => {
+      const scores = subjectScores[s];
+      if (scores.length > 0) {
+        const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+        if (avg < lowestAvg) { lowestAvg = avg; weakest = s; }
+      }
+    });
+
+    // 最近練習した科目（重複除外・直近3つ）
+    const recent = history
+      .slice()
+      .reverse()
+      .map((h: any) => h.subject)
+      .filter((s: string, i: number, arr: string[]) => arr.indexOf(s) === i)
+      .slice(0, 3);
+
+    setStats({ totalCount: history.length, todayCount: todayItems.length, streak, avgScore, weakestSubject: weakest, recentSubjects: recent });
+  };
+
+  const getDailyTip = async () => {
+    setTipLoading(true);
+    setDailyTip("");
+    try {
+      const subject = stats.weakestSubject || "財務会計論";
+      const response = await fetch(`${API_BASE_URL}/study-tip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subject, avgScore: stats.avgScore }),
+      });
+      const data = await response.json();
+      setDailyTip(data.tip);
+    } catch {
+      setDailyTip("アドバイスの取得に失敗しました。");
+    } finally {
+      setTipLoading(false);
+    }
+  };
+
+  return (
+    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+      {/* ヘッダー */}
+      <View style={styles.hero}>
+        <Text style={styles.emoji}>📚</Text>
+        <Text style={styles.title}>会計士試験</Text>
+        <Text style={styles.titleSub}>学習アプリ</Text>
+        <Text style={styles.subtitle}>AIが答案を採点・フィードバック</Text>
+      </View>
+
+      {/* 学習状況ダッシュボード */}
+      {stats.totalCount > 0 && (
+        <View style={styles.dashboard}>
+          <Text style={styles.dashboardTitle}>📈 学習状況</Text>
+          <View style={styles.statsGrid}>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{stats.totalCount}</Text>
+              <Text style={styles.statLabel}>累計採点数</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={[styles.statValue, { color: "#2563eb" }]}>{stats.todayCount}</Text>
+              <Text style={styles.statLabel}>今日の採点</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={[styles.statValue, { color: "#d97706" }]}>{stats.streak}日</Text>
+              <Text style={styles.statLabel}>連続学習</Text>
+            </View>
+            {stats.avgScore !== null && (
+              <View style={styles.statCard}>
+                <Text style={[styles.statValue, { color: stats.avgScore >= 70 ? "#16a34a" : stats.avgScore >= 50 ? "#d97706" : "#dc2626" }]}>
+                  {stats.avgScore}%
+                </Text>
+                <Text style={styles.statLabel}>平均得点率</Text>
+              </View>
+            )}
+          </View>
+
+          {stats.weakestSubject && (
+            <View style={styles.weakAlert}>
+              <Text style={styles.weakAlertText}>⚠️ 要強化：{stats.weakestSubject}</Text>
+            </View>
+          )}
+
+          {stats.recentSubjects.length > 0 && (
+            <View style={styles.recentRow}>
+              <Text style={styles.recentLabel}>最近練習：</Text>
+              {stats.recentSubjects.map(s => (
+                <View key={s} style={styles.recentChip}>
+                  <Text style={styles.recentChipText}>{s}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* 今日のアドバイス */}
+      <View style={styles.tipSection}>
+        <TouchableOpacity style={styles.tipButton} onPress={getDailyTip} disabled={tipLoading}>
+          {tipLoading ? (
+            <View style={styles.tipButtonContent}>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={styles.tipButtonText}>AI生成中...</Text>
+            </View>
+          ) : (
+            <Text style={styles.tipButtonText}>
+              💡 {stats.weakestSubject ? `${stats.weakestSubject}の学習アドバイスを見る` : "今日の学習アドバイスを見る"}
+            </Text>
+          )}
+        </TouchableOpacity>
+        {dailyTip !== "" && (
+          <View style={styles.tipCard}>
+            <Text style={styles.tipCardTitle}>
+              {stats.weakestSubject ? `📘 ${stats.weakestSubject} アドバイス` : "📘 今日の学習アドバイス"}
+            </Text>
+            <Text style={styles.tipCardText}>{dailyTip}</Text>
+          </View>
+        )}
+      </View>
+
+      {/* メニューカード */}
+      <View style={styles.menuGrid}>
+        <TouchableOpacity style={styles.menuCard} onPress={() => router.push("/(tabs)/answer")}>
+          <Text style={styles.menuEmoji}>✏️</Text>
+          <Text style={styles.menuTitle}>答案採点</Text>
+          <Text style={styles.menuDesc}>問題文と答案を入力してAIが即採点</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.menuCard} onPress={() => router.push("/(tabs)/analytics")}>
+          <Text style={styles.menuEmoji}>📊</Text>
+          <Text style={styles.menuTitle}>苦手分析</Text>
+          <Text style={styles.menuDesc}>科目別の得点率と学習アドバイス</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.menuCard} onPress={() => router.push("/(tabs)/explore")}>
+          <Text style={styles.menuEmoji}>📋</Text>
+          <Text style={styles.menuTitle}>採点履歴</Text>
+          <Text style={styles.menuDesc}>過去の採点結果をいつでも確認</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* 採点スタートボタン */}
+      <TouchableOpacity style={styles.button} onPress={() => router.push("/(tabs)/answer")}>
+        <Text style={styles.buttonText}>今すぐ問題を解く →</Text>
+      </TouchableOpacity>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  scroll: { backgroundColor: "#eff6ff" },
+  container: { alignItems: "center", padding: 24, paddingBottom: 60 },
+  hero: { alignItems: "center", marginBottom: 24 },
+  emoji: { fontSize: 56, marginBottom: 8 },
+  title: { fontSize: 32, fontWeight: "bold", color: "#1e3a8a" },
+  titleSub: { fontSize: 28, fontWeight: "bold", color: "#2563eb", marginBottom: 4 },
+  subtitle: { fontSize: 15, color: "#64748b" },
+  dashboard: {
+    width: "100%",
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 20,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  dashboardTitle: { fontSize: 16, fontWeight: "bold", color: "#1e40af", marginBottom: 14 },
+  statsGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 12 },
+  statCard: {
+    flex: 1,
+    minWidth: 70,
+    backgroundColor: "#f8fafc",
+    borderRadius: 10,
+    padding: 12,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  statValue: { fontSize: 22, fontWeight: "bold", color: "#1e293b" },
+  statLabel: { fontSize: 11, color: "#64748b", marginTop: 2, textAlign: "center" },
+  weakAlert: {
+    backgroundColor: "#fef2f2",
+    borderRadius: 8,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    marginBottom: 10,
   },
+  weakAlertText: { color: "#dc2626", fontSize: 13, fontWeight: "600" },
+  recentRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
+  recentLabel: { fontSize: 12, color: "#64748b" },
+  recentChip: {
+    backgroundColor: "#eff6ff",
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+  },
+  recentChipText: { fontSize: 11, color: "#2563eb", fontWeight: "600" },
+  tipSection: { width: "100%", marginBottom: 20 },
+  tipButton: {
+    backgroundColor: "#2563eb",
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  tipButtonContent: { flexDirection: "row", alignItems: "center", gap: 8 },
+  tipButtonText: { color: "#fff", fontSize: 15, fontWeight: "bold" },
+  tipCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    borderLeftWidth: 4,
+    borderLeftColor: "#2563eb",
+  },
+  tipCardTitle: { fontSize: 14, fontWeight: "bold", color: "#1e40af", marginBottom: 8 },
+  tipCardText: { fontSize: 14, color: "#334155", lineHeight: 22 },
+  menuGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 24, width: "100%" },
+  menuCard: {
+    flex: 1,
+    minWidth: "45%",
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+  },
+  menuEmoji: { fontSize: 28, marginBottom: 8 },
+  menuTitle: { fontSize: 14, fontWeight: "bold", color: "#1e40af", marginBottom: 4 },
+  menuDesc: { fontSize: 11, color: "#64748b", textAlign: "center", lineHeight: 16 },
+  button: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 16,
+    paddingHorizontal: 48,
+    borderRadius: 12,
+    shadowColor: "#2563eb",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  buttonText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
 });

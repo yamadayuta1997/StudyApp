@@ -10,6 +10,7 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from "react-native";
 import Markdown from "react-native-markdown-display";
 import { HistoryItem } from "./explore";
@@ -51,6 +52,8 @@ function TrendIcon({ trend }: { trend: "up" | "down" | "stable" | null }) {
 }
 
 export default function AnalyticsScreen() {
+  const { width } = useWindowDimensions();
+  const isTablet = width >= 768;
   const [stats, setStats] = useState<SubjectStats[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [studyTip, setStudyTip] = useState("");
@@ -181,8 +184,9 @@ export default function AnalyticsScreen() {
       {/* 科目別得点率 */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>科目別 平均得点率（弱い順）</Text>
+        <View style={isTablet ? styles.subjectGrid : undefined}>
         {stats.map(stat => (
-          <View key={stat.subject} style={styles.subjectRow}>
+          <View key={stat.subject} style={[styles.subjectRow, isTablet && styles.subjectRowTablet]}>
             <View style={styles.subjectInfo}>
               <View style={styles.subjectNameRow}>
                 <Text style={styles.subjectName}>{stat.subject}</Text>
@@ -201,6 +205,7 @@ export default function AnalyticsScreen() {
             </TouchableOpacity>
           </View>
         ))}
+        </View>
       </View>
 
       {/* 学習ヒント */}
@@ -255,11 +260,20 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
   },
   sectionTitle: { fontSize: 15, fontWeight: "bold", color: "#1e40af", marginBottom: 16 },
+  subjectGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
   subjectRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 14,
     gap: 8,
+  },
+  subjectRowTablet: {
+    width: "48%",
+    marginBottom: 14,
   },
   subjectInfo: { width: 80 },
   subjectNameRow: { flexDirection: "row", alignItems: "center", gap: 4 },

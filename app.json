@@ -11,8 +11,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "答案を撮影するためにカメラへのアクセスを許可してください。",
-        "NSPhotoLibraryUsageDescription": "答案の写真を読み込むためにフォトライブラリへのアクセスを許可してください。"
+        "NSCameraUsageDescription": "答案をカメラで撮影するために使用します",
+        "NSPhotoLibraryUsageDescription": "答案の写真をライブラリから選択するために使用します"
       }
     },
     "android": {
@@ -39,8 +39,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "答案の写真を読み込むためにフォトライブラリへのアクセスを許可してください。",
-          "cameraPermission": "答案を撮影するためにカメラへのアクセスを許可してください。"
+          "photosPermission": "答案の写真をライブラリから選択するために使用します",
+          "cameraPermission": "答案をカメラで撮影するために使用します"
         }
       ],
       [

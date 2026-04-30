@@ -128,7 +128,7 @@ export default function AnswerScreen() {
       if (e.name === "AbortError" || msg.includes("aborted")) {
         setError("接続がタイムアウトしました（30秒）。ネットワーク環境をご確認ください。");
       } else if (msg.toLowerCase().includes("failed to fetch") || msg.toLowerCase().includes("network")) {
-        setError("ネットワークエラーが発生しました。インターネット接続をご確認ください。");
+        setError("サーバーへの接続に失敗しました。Wi-Fi接続を確認してください。");
       } else if (msg.includes("NO_FILE")) {
         setError("ファイルの送信に失敗しました。PDFを再選択してください。");
       } else if (msg.includes("NO_TEXT")) {
@@ -145,8 +145,8 @@ export default function AnswerScreen() {
 
   const handleImagePick = async (useCamera: boolean) => {
     let pickerResult;
-    try {
-      if (useCamera) {
+    if (useCamera) {
+      try {
         if (Platform.OS !== "web") {
           const perm = await ImagePicker.requestCameraPermissionsAsync();
           if (!perm.granted) {
@@ -155,7 +155,12 @@ export default function AnswerScreen() {
           }
         }
         pickerResult = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.8 });
-      } else {
+      } catch (e: any) {
+        setError("カメラの起動に失敗しました: " + e.message);
+        return;
+      }
+    } else {
+      try {
         if (Platform.OS !== "web") {
           const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (!perm.granted) {
@@ -164,10 +169,10 @@ export default function AnswerScreen() {
           }
         }
         pickerResult = await ImagePicker.launchImageLibraryAsync({ mediaTypes: "images", quality: 0.8 });
+      } catch (e: any) {
+        setError("ギャラリーの起動に失敗しました: " + e.message);
+        return;
       }
-    } catch (e: any) {
-      setError("画像の選択に失敗しました: " + e.message);
-      return;
     }
     if (pickerResult.canceled) return;
 

@@ -409,6 +409,135 @@ app.post("/chat", async (req, res) => {
   }
 });
 
+// ===== 比較添削エンドポイント =====
+app.post("/grade-compare", async (req, res) => {
+  try {
+    const { answerImage, modelAnswerImage, modelAnswerText, subject } = req.body;
+
+    if (!answerImage) {
+      return res.status(400).json({ error: "答案画像が必要です" });
+    }
+
+    // 答案OCR
+    const answerOcrRes = await client.messages.create({
+      model: "claude-opus-4-5",
+      max_tokens: 1000,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: answerImage } },
+          { type: "text", text: "手書き答案のテキストをそのまま抽出してください。読めない部分は[不明]と記載。" }
+        ]
+      }]
+    });
+    const answerText = answerOcrRes.content[0].text;
+
+    // 模範解答テキスト取得
+    let modelText = modelAnswerText || "";
+    if (!modelText && modelAnswerImage) {
+      const modelOcrRes = await client.messages.create({
+        model: "claude-opus-4-5",
+        max_tokens: 1000,
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: modelAnswerImage } },
+            { type: "text", text: "模範解答のテキストをそのまま抽出してください。" }
+          ]
+        }]
+      });
+      modelText = modelOcrRes.content[0].text;
+    }
+
+    if (!modelText) {
+      return res.status(400).json({ error: "模範解答（画像またはテキスト）が必要です" });
+    }
+
+    // 思考ステップ分解 + 差分分析
+    const analysisRes = await client.messages.create({
+      model: "claude-opus-4-5",
+      max_tokens: 2000,
+      messages: [{
+        role: "user",
+        content: `あなたはCPA（公認会計士）試験の答案添削AIです。
+科目: ${subject || "不明"}
+
+【受験生の答案】
+${answerText}
+
+【模範解答】
+${modelText}
+
+以下のJSON形式のみで回答してください（コードブロック不要）:
+{
+  "score": <0-100の整数>,
+  "passed": <80点以上でtrue>,
+  "fatalErrors": <致命的ミスの件数>,
+  "answerSteps": {
+    "issueRecognition": "<論点認識の内容>",
+    "premise": "<前提整理の内容>",
+    "logic": "<計算/ロジックの内容>",
+    "conclusion": "<結論>"
+  },
+  "modelSteps": {
+    "issueRecognition": "<論点認識>",
+    "premise": "<前提整理>",
+    "logic": "<計算/ロジック>",
+    "conclusion": "<結論>"
+  },
+  "feedbacks": [
+    {
+      "priority": 1,
+      "type": "<論点誤認|思考プロセスミス|計算ミス|前提不足>",
+      "point": "<具体的な指摘。例：この問題は〇〇の論点ですが、△△として処理しています>",
+      "color": "<red|yellow|green>"
+    }
+  ],
+  "missingProcess": <途中式がない場合true>
+}
+feedbacksは最大5件、priorityの昇順。正解でも減点リスクがあれば指摘すること。`
+      }]
+    });
+
+    let result;
+    try {
+      result = JSON.parse(analysisRes.content[0].text);
+    } catch {
+      return res.status(500).json({ error: "解析結果のパースに失敗しました" });
+    }
+
+    // 教科書RAG（既存textbookCacheを利用）
+    if (result.feedbacks && result.feedbacks.length > 0) {
+      const topIssue = result.feedbacks[0].point;
+      try {
+        if (fs.existsSync(TEXTBOOKS_FILE)) {
+          const textbooks = JSON.parse(fs.readFileSync(TEXTBOOKS_FILE, "utf8"));
+          if (textbooks.length > 0) {
+            const ragRes = await client.messages.create({
+              model: "claude-opus-4-5",
+              max_tokens: 300,
+              messages: [{
+                role: "user",
+                content: `以下の指摘に関連する教科書の記述を30字以内で引用してください。なければ空文字で返してください。
+指摘: ${topIssue}
+教科書テキスト（先頭3000字）: ${textbooks[0][1]?.text?.slice(0, 3000) || ""}`
+              }]
+            });
+            result.textbookRef = ragRes.content[0].text.trim();
+          }
+        }
+      } catch (_) {
+        // RAG失敗はスルー
+      }
+    }
+
+    res.json(result);
+  } catch (err) {
+    console.error("/grade-compare error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`サーバー起動中: http://0.0.0.0:${PORT} (PORT env=${process.env.PORT})`);

@@ -23,6 +23,7 @@ const MAPPING = {
   'list.bullet': 'format-list-bulleted',
   'book.fill': 'menu-book',
   'calendar': 'event',
+  'arrow.left.arrow.right': 'compare-arrows',
 } as IconMapping;
 
 /**

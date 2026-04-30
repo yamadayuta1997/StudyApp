@@ -58,6 +58,13 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={26} name="calendar" color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="compare"
+        options={{
+          title: '比較添削',
+          tabBarIcon: ({ color }) => <IconSymbol size={26} name="arrow.left.arrow.right" color={color} />,
+        }}
+      />
     </Tabs>
   );
 }

@@ -4,7 +4,9 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -40,6 +42,7 @@ export default function CompareScreen() {
   const [modelB64, setModelB64] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GradeResult | null>(null);
+  const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null);
 
   const pickImage = async (
     setter: (uri: string) => void,
@@ -136,13 +139,22 @@ export default function CompareScreen() {
               </View>
             </View>
             {feedbacks.map((fb, i) => (
-              <View key={i} style={styles.overlayRow}>
+              <TouchableOpacity
+                key={i}
+                style={styles.overlayRow}
+                activeOpacity={0.7}
+                onPress={() => {
+                  console.log('[compare][modal] open feedback:', fb.type, 'priority:', fb.priority);
+                  setSelectedFeedback(fb);
+                }}
+              >
                 <View style={[styles.overlayDot, { backgroundColor: COLOR_MAP[fb.color] || '#999' }]} />
                 <View style={styles.overlayTextWrap}>
                   <Text style={styles.overlayType}>{TYPE_ICON[fb.type] || '•'} {fb.type}</Text>
                   <Text style={styles.overlayPoint} numberOfLines={2}>{fb.point}</Text>
                 </View>
-              </View>
+                <Text style={styles.overlayChevron}>›</Text>
+              </TouchableOpacity>
             ))}
           </View>
         )}
@@ -150,8 +162,57 @@ export default function CompareScreen() {
     );
   };
 
+  const closeFeedbackModal = () => {
+    console.log('[compare][modal] close');
+    setSelectedFeedback(null);
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
+      {/* フィードバック詳細モーダル */}
+      <Modal
+        visible={selectedFeedback !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={closeFeedbackModal}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={closeFeedbackModal}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            {selectedFeedback !== null && (
+              <>
+                <View style={styles.modalHeader}>
+                  <View style={[styles.modalColorBar, { backgroundColor: COLOR_MAP[selectedFeedback.color] || '#999' }]} />
+                  <View style={styles.modalTitleWrap}>
+                    <Text style={styles.modalTypeIcon}>{TYPE_ICON[selectedFeedback.type] || '•'}</Text>
+                    <Text style={styles.modalTypeName}>{selectedFeedback.type}</Text>
+                  </View>
+                  <TouchableOpacity onPress={closeFeedbackModal} style={styles.modalCloseBtn} hitSlop={8}>
+                    <Text style={styles.modalCloseText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.modalPriorityRow}>
+                  <Text style={styles.modalPriorityLabel}>優先度</Text>
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <View
+                      key={n}
+                      style={[
+                        styles.modalPriorityDot,
+                        { backgroundColor: n <= selectedFeedback.priority ? COLOR_MAP[selectedFeedback.color] || '#999' : '#E5E5EA' },
+                      ]}
+                    />
+                  ))}
+                </View>
+                <Text style={styles.modalPointLabel}>指摘内容</Text>
+                <Text style={styles.modalPointText}>{selectedFeedback.point}</Text>
+                <TouchableOpacity style={[styles.modalOkBtn, { backgroundColor: COLOR_MAP[selectedFeedback.color] || '#007AFF' }]} onPress={closeFeedbackModal}>
+                  <Text style={styles.modalOkText}>閉じる</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>📝 比較添削</Text>
 
@@ -319,4 +380,29 @@ const styles = StyleSheet.create({
   stepLabel: { fontSize: 11, color: '#8E8E93', width: 60 },
   stepAnswer: { flex: 1, fontSize: 12, color: '#1C1C1E' },
   stepMark: { fontSize: 16, fontWeight: 'bold' },
+
+  /* フィードバック詳細モーダル */
+  modalBackdrop: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center', alignItems: 'center', padding: 24,
+  },
+  modalCard: {
+    width: '100%', backgroundColor: '#fff', borderRadius: 18,
+    padding: 20, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, elevation: 8,
+  },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
+  modalColorBar: { width: 4, height: 28, borderRadius: 2 },
+  modalTitleWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  modalTypeIcon: { fontSize: 20 },
+  modalTypeName: { fontSize: 17, fontWeight: '700', color: '#1C1C1E' },
+  modalCloseBtn: { padding: 4 },
+  modalCloseText: { fontSize: 18, color: '#8E8E93', fontWeight: '600' },
+  modalPriorityRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
+  modalPriorityLabel: { fontSize: 12, color: '#8E8E93', marginRight: 4 },
+  modalPriorityDot: { width: 10, height: 10, borderRadius: 5 },
+  modalPointLabel: { fontSize: 12, fontWeight: '600', color: '#8E8E93', marginBottom: 8 },
+  modalPointText: { fontSize: 15, color: '#1C1C1E', lineHeight: 22, marginBottom: 20 },
+  modalOkBtn: { borderRadius: 12, padding: 14, alignItems: 'center' },
+  modalOkText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  overlayChevron: { color: '#8E8E93', fontSize: 16, fontWeight: '600', alignSelf: 'center' },
 });

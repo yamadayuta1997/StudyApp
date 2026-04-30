@@ -1,6 +1,9 @@
-# Railway/nixpacks: ルートのExpo依存はインストールせず、serverのみインストール
+# Railway/nixpacks: install server deps only, start from server dir
+[phases.setup]
+nixPkgs = ["nodejs_20"]
+
 [phases.install]
-cmds = ["cd server && npm install"]
+cmds = ["cd server && npm install --omit=dev"]
 
 [start]
 cmd = "cd server && node index.js"

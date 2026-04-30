@@ -504,8 +504,14 @@ feedbacksは最大5件、priorityの昇順。正解でも減点リスクがあ�
 
     let result;
     try {
-      result = JSON.parse(analysisRes.content[0].text);
-    } catch {
+      let raw = analysisRes.content[0].text.trim();
+      console.log("[grade-compare] raw response (first 200):", raw.slice(0, 200));
+      // Claude sometimes wraps JSON in markdown code blocks
+      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "");
+      result = JSON.parse(raw);
+      console.log("[grade-compare] parsed score:", result.score, "feedbacks:", result.feedbacks?.length);
+    } catch (parseErr) {
+      console.error("[grade-compare] JSON parse failed:", parseErr.message);
       return res.status(500).json({ error: "解析結果のパースに失敗しました" });
     }
 

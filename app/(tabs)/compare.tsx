@@ -1,4 +1,5 @@
 import * as ImagePicker from 'expo-image-picker';
+import { Platform } from 'react-native';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -30,31 +31,60 @@ export default function CompareScreen() {
   const pickImage = async (
     setter: (uri: string) => void,
     b64Setter: (b64: string) => void,
+    label: string,
   ) => {
+    if (Platform.OS !== 'web') {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('フォトライブラリへのアクセス許可が必要です');
+        return;
+      }
+    }
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: "images",
+      mediaTypes: 'images',
       base64: true,
       quality: 0.7,
     });
+    console.log(`[compare][${label}] canceled:`, res.canceled);
     if (!res.canceled && res.assets[0]) {
-      setter(res.assets[0].uri);
-      b64Setter(res.assets[0].base64 || '');
+      const asset = res.assets[0];
+      console.log(`[compare][${label}] uri:`, asset.uri);
+      console.log(`[compare][${label}] base64 length:`, asset.base64?.length ?? 'undefined');
+      if (!asset.base64) {
+        Alert.alert('画像の読み込みに失敗しました', 'base64データを取得できませんでした');
+        return;
+      }
+      setter(asset.uri);
+      b64Setter(asset.base64);
     }
   };
 
   const takePhoto = async (
     setter: (uri: string) => void,
     b64Setter: (b64: string) => void,
+    label: string,
   ) => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) {
       Alert.alert('カメラ権限が必要です');
       return;
     }
-    const res = await ImagePicker.launchCameraAsync({ base64: true, quality: 0.7 });
+    const res = await ImagePicker.launchCameraAsync({
+      mediaTypes: 'images',
+      base64: true,
+      quality: 0.7,
+    });
+    console.log(`[compare][${label}] camera canceled:`, res.canceled);
     if (!res.canceled && res.assets[0]) {
-      setter(res.assets[0].uri);
-      b64Setter(res.assets[0].base64 || '');
+      const asset = res.assets[0];
+      console.log(`[compare][${label}] uri:`, asset.uri);
+      console.log(`[compare][${label}] base64 length:`, asset.base64?.length ?? 'undefined');
+      if (!asset.base64) {
+        Alert.alert('画像の読み込みに失敗しました', 'base64データを取得できませんでした');
+        return;
+      }
+      setter(asset.uri);
+      b64Setter(asset.base64);
     }
   };
 
@@ -63,18 +93,25 @@ export default function CompareScreen() {
       Alert.alert('答案と模範解答の両方が必要です');
       return;
     }
+    console.log('[compare][analyze] answerB64 length:', answerB64.length);
+    console.log('[compare][analyze] modelB64 length:', modelB64.length);
     setLoading(true);
     setResult(null);
     try {
+      console.log('[compare][analyze] sending to', `${SERVER}/grade-compare`);
       const resp = await fetch(`${SERVER}/grade-compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answerImage: answerB64, modelAnswerImage: modelB64 }),
       });
+      console.log('[compare][analyze] response status:', resp.status);
       const data = await resp.json();
+      console.log('[compare][analyze] response data:', JSON.stringify(data).slice(0, 300));
       if (data.error) throw new Error(data.error);
+      console.log('[compare][analyze] score:', data.score, 'passed:', data.passed, 'feedbacks:', data.feedbacks?.length);
       setResult(data);
     } catch (e: any) {
+      console.log('[compare][analyze] ERROR:', e.message);
       Alert.alert('エラー', e.message);
     } finally {
       setLoading(false);
@@ -88,25 +125,37 @@ export default function CompareScreen() {
 
         <Text style={styles.label}>① 自分の答案</Text>
         <View style={styles.row}>
-          <TouchableOpacity style={styles.btn} onPress={() => takePhoto(setAnswerUri, setAnswerB64)}>
+          <TouchableOpacity style={styles.btn} onPress={() => takePhoto(setAnswerUri, setAnswerB64, 'answer')}>
             <Text style={styles.btnText}>📷 撮影</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.btn} onPress={() => pickImage(setAnswerUri, setAnswerB64)}>
+          <TouchableOpacity style={styles.btn} onPress={() => pickImage(setAnswerUri, setAnswerB64, 'answer')}>
             <Text style={styles.btnText}>🖼️ 選択</Text>
           </TouchableOpacity>
         </View>
-        {answerUri && <Image source={{ uri: answerUri }} style={styles.preview} />}
+        {answerUri ? (
+          <Image source={{ uri: answerUri }} style={styles.preview} />
+        ) : (
+          <View style={styles.placeholder}>
+            <Text style={styles.placeholderText}>画像を選択してください</Text>
+          </View>
+        )}
 
         <Text style={styles.label}>② 模範解答</Text>
         <View style={styles.row}>
-          <TouchableOpacity style={styles.btn} onPress={() => takePhoto(setModelUri, setModelB64)}>
+          <TouchableOpacity style={styles.btn} onPress={() => takePhoto(setModelUri, setModelB64, 'model')}>
             <Text style={styles.btnText}>📷 撮影</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.btn} onPress={() => pickImage(setModelUri, setModelB64)}>
+          <TouchableOpacity style={styles.btn} onPress={() => pickImage(setModelUri, setModelB64, 'model')}>
             <Text style={styles.btnText}>🖼️ 選択</Text>
           </TouchableOpacity>
         </View>
-        {modelUri && <Image source={{ uri: modelUri }} style={styles.preview} />}
+        {modelUri ? (
+          <Image source={{ uri: modelUri }} style={styles.preview} />
+        ) : (
+          <View style={styles.placeholder}>
+            <Text style={styles.placeholderText}>画像を選択してください</Text>
+          </View>
+        )}
 
         <TouchableOpacity
           style={[styles.analyzeBtn, (!answerB64 || !modelB64) && styles.disabled]}
@@ -126,7 +175,7 @@ export default function CompareScreen() {
         {result && (
           <View style={styles.resultBox}>
             <View style={styles.scoreRow}>
-              <Text style={styles.scoreNum}>{result.score}点</Text>
+              <Text style={styles.scoreNum}>{result.score ?? '-'}点</Text>
               <View style={[styles.badge, result.passed ? styles.pass : styles.fail]}>
                 <Text style={styles.badgeText}>
                   {result.passed ? '合格ライン達成' : '合格ライン未達'}
@@ -141,7 +190,7 @@ export default function CompareScreen() {
             )}
 
             <Text style={styles.sectionTitle}>📌 指摘事項</Text>
-            {result.feedbacks?.map((fb: any, i: number) => (
+            {Array.isArray(result.feedbacks) && result.feedbacks.map((fb: any, i: number) => (
               <View key={i} style={[styles.feedbackCard, { borderLeftColor: COLOR_MAP[fb.color] || '#ccc' }]}>
                 <Text style={styles.feedbackType}>{TYPE_ICON[fb.type] || '•'} {fb.type}</Text>
                 <Text style={styles.feedbackPoint}>{fb.point}</Text>
@@ -198,6 +247,12 @@ const styles = StyleSheet.create({
     width: '100%', height: 180, borderRadius: 10, marginTop: 8,
     resizeMode: 'contain', backgroundColor: '#E5E5EA',
   },
+  placeholder: {
+    width: '100%', height: 100, borderRadius: 10, marginTop: 8,
+    backgroundColor: '#E5E5EA', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: '#D1D1D6', borderStyle: 'dashed',
+  },
+  placeholderText: { color: '#8E8E93', fontSize: 13 },
   analyzeBtn: {
     backgroundColor: '#007AFF', borderRadius: 12, padding: 16,
     alignItems: 'center', marginTop: 24,

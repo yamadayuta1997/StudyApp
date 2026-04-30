@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
+import { DAILY_LIMIT, IS_DEV, checkAndIncrement, getUsageCount } from '@/utils/usageLimit';
 import {
   ActivityIndicator,
   Alert,
@@ -93,10 +94,20 @@ export default function CompareScreen() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [lastSavedDate, setLastSavedDate] = useState<string | null>(null);
   const [weakTop3, setWeakTop3] = useState<WeakPoint[]>([]);
+  const [usageCount, setUsageCount] = useState(0);
+  const [limitReached, setLimitReached] = useState(false);
 
   useFocusEffect(useCallback(() => {
     loadLastSaved();
+    refreshUsage();
   }, []));
+
+  const refreshUsage = async () => {
+    const count = await getUsageCount();
+    setUsageCount(count);
+    setLimitReached(count >= DAILY_LIMIT);
+    console.log('[compare][usage] count:', count, 'limitReached:', count >= DAILY_LIMIT);
+  };
 
   const loadLastSaved = async () => {
     try {
@@ -182,6 +193,17 @@ export default function CompareScreen() {
 
   const analyze = async () => {
     if (!answerB64 || !modelB64) { Alert.alert('答案と模範解答の両方が必要です'); return; }
+
+    // 利用回数チェック
+    const usage = await checkAndIncrement();
+    setUsageCount(usage.count);
+    if (!usage.allowed) {
+      setLimitReached(true);
+      console.log('[compare][analyze] LIMIT REACHED count:', usage.count);
+      return;
+    }
+    console.log('[compare][analyze] usage count:', usage.count, 'remaining:', usage.remaining);
+
     console.log('[compare][analyze] b64 len answer:', answerB64.length, 'model:', modelB64.length);
     setLoading(true);
     setResult(null);
@@ -409,20 +431,35 @@ export default function CompareScreen() {
         )}
 
         {/* プライマリ CTA: 分析ボタン（両画像揃ったら強調） */}
-        <TouchableOpacity
-          style={[styles.analyzeBtn, (!answerB64 || !modelB64 || loading) && styles.analyzeBtnDim]}
-          onPress={analyze}
-          disabled={!answerB64 || !modelB64 || loading}
-        >
-          {loading ? (
-            <View style={styles.analyzeBtnInner}>
-              <ActivityIndicator size="small" color="#fff" />
-              <Text style={styles.analyzeBtnText}>解析中...（最大60秒）</Text>
-            </View>
-          ) : (
-            <Text style={styles.analyzeBtnText}>🔍 思考ズレを分析する</Text>
-          )}
-        </TouchableOpacity>
+        {limitReached && !IS_DEV ? (
+          <View style={styles.limitBox}>
+            <Text style={styles.limitTitle}>🚫 本日の無料利用回数を超えています</Text>
+            <Text style={styles.limitSub}>日付が変わるとリセットされます（毎日{DAILY_LIMIT}回無料）</Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[styles.analyzeBtn, (!answerB64 || !modelB64 || loading) && styles.analyzeBtnDim]}
+            onPress={analyze}
+            disabled={!answerB64 || !modelB64 || loading}
+          >
+            {loading ? (
+              <View style={styles.analyzeBtnInner}>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.analyzeBtnText}>解析中...（最大60秒）</Text>
+              </View>
+            ) : (
+              <Text style={styles.analyzeBtnText}>🔍 思考ズレを分析する</Text>
+            )}
+          </TouchableOpacity>
+        )}
+        {!IS_DEV && !limitReached && (
+          <Text style={styles.usageText}>
+            本日の残り：{Math.max(0, DAILY_LIMIT - usageCount)}/{DAILY_LIMIT} 回
+          </Text>
+        )}
+        {IS_DEV && (
+          <Text style={styles.devBadge}>DEV MODE: 制限なし</Text>
+        )}
 
         {result !== null && (
           <View style={styles.resultBox}>
@@ -629,6 +666,16 @@ const styles = StyleSheet.create({
   modalOkBtn: { borderRadius: 12, padding: 14, alignItems: 'center' },
   modalOkText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   overlayChevron: { color: '#8E8E93', fontSize: 16, fontWeight: '600', alignSelf: 'center' },
+
+  /* 制限 */
+  limitBox: {
+    backgroundColor: '#FEF2F2', borderRadius: 12, padding: 16, marginTop: 24,
+    borderWidth: 1, borderColor: '#FECACA', alignItems: 'center',
+  },
+  limitTitle: { fontSize: 15, fontWeight: '700', color: '#991B1B', marginBottom: 4 },
+  limitSub: { fontSize: 12, color: '#B91C1C', textAlign: 'center' },
+  usageText: { textAlign: 'center', fontSize: 12, color: '#6B7280', marginTop: 8 },
+  devBadge: { textAlign: 'center', fontSize: 11, color: '#059669', marginTop: 6, fontWeight: '600' },
 
   /* ステップインジケーター */
   stepBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },

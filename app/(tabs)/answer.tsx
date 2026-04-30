@@ -178,6 +178,7 @@ export default function AnswerScreen() {
 
     const image = pickerResult.assets[0];
     const fileName = image.fileName || (useCamera ? "camera.jpg" : "image.jpg");
+    console.log("[handleImagePick] image:", { uri: image.uri, mimeType: image.mimeType, fileName, width: image.width, height: image.height });
     setImageLoading(true);
     setImageFileName(fileName);
 
@@ -185,15 +186,22 @@ export default function AnswerScreen() {
     if (Platform.OS === "web") {
       const blob = await (await fetch(image.uri)).blob();
       formData.append("image", blob, fileName);
+      console.log("[handleImagePick] web: blob appended, size:", blob.size);
     } else {
-      formData.append("image", { uri: image.uri, type: image.mimeType || "image/jpeg", name: fileName } as any);
+      const fileEntry = { uri: image.uri, type: image.mimeType || "image/jpeg", name: fileName };
+      console.log("[handleImagePick] native: appending fileEntry:", fileEntry);
+      formData.append("image", fileEntry as any);
     }
     try {
+      console.log("[handleImagePick] sending to", `${API_BASE_URL}/extract-image`);
       const res = await fetch(`${API_BASE_URL}/extract-image`, { method: "POST", body: formData });
+      console.log("[handleImagePick] response status:", res.status);
       const data = await res.json();
+      console.log("[handleImagePick] response data keys:", Object.keys(data));
       if (data.error) throw new Error(data.error);
       setAnswer(data.text);
     } catch (e: any) {
+      console.log("[handleImagePick] ERROR:", e.message);
       setError("画像の読み込みに失敗しました: " + e.message);
       setImageFileName("");
     } finally {

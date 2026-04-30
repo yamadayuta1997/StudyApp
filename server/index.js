@@ -341,8 +341,11 @@ app.post("/extract-pdf-image", upload.single("pdf"), async (req, res) => {
 
 // ---- Extract Image (OCR) ----
 app.post("/extract-image", upload.single("image"), async (req, res) => {
+  console.log("[extract-image] content-type:", req.headers["content-type"]);
+  console.log("[extract-image] req.file:", req.file ? { fieldname: req.file.fieldname, originalname: req.file.originalname, mimetype: req.file.mimetype, size: req.file.size } : "MISSING");
   try {
     if (!req.file) {
+      console.log("[extract-image] body keys:", Object.keys(req.body));
       return res.status(400).json({ error: "画像ファイルを受信できませんでした。", code: "NO_FILE" });
     }
     const imageBase64 = req.file.buffer.toString("base64");

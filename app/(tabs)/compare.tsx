@@ -32,7 +32,7 @@ export default function CompareScreen() {
     b64Setter: (b64: string) => void,
   ) => {
     const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: "images",
       base64: true,
       quality: 0.7,
     });

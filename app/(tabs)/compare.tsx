@@ -1,5 +1,7 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -47,6 +49,15 @@ type GradeResult = {
   textbookRef?: string;
 };
 
+type CompareHistoryItem = {
+  id: string;
+  date: string;
+  result: GradeResult;
+};
+
+const STORAGE_KEY = 'compare_history';
+const MAX_HISTORY = 20;
+
 export default function CompareScreen() {
   const [answerUri, setAnswerUri] = useState<string | null>(null);
   const [answerB64, setAnswerB64] = useState<string | null>(null);
@@ -55,6 +66,54 @@ export default function CompareScreen() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GradeResult | null>(null);
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [lastSavedDate, setLastSavedDate] = useState<string | null>(null);
+
+  useFocusEffect(useCallback(() => {
+    loadLastSaved();
+  }, []));
+
+  const loadLastSaved = async () => {
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEY);
+      if (!raw) { console.log('[compare][load] no saved data'); return; }
+      const items: CompareHistoryItem[] = JSON.parse(raw);
+      console.log('[compare][load] items count:', items.length);
+      if (items.length === 0) return;
+      const latest = items[items.length - 1];
+      setLastSavedDate(latest.date);
+      if (result === null) {
+        setResult(latest.result);
+        setSaveStatus('saved');
+        console.log('[compare][load] restored score:', latest.result.score, 'date:', latest.date);
+      }
+    } catch (e: any) {
+      console.log('[compare][load] ERROR:', e.message);
+    }
+  };
+
+  const saveResult = async () => {
+    if (!result) return;
+    setSaveStatus('saving');
+    try {
+      const raw = await AsyncStorage.getItem(STORAGE_KEY);
+      const items: CompareHistoryItem[] = raw ? JSON.parse(raw) : [];
+      const newItem: CompareHistoryItem = {
+        id: Date.now().toString(),
+        date: new Date().toLocaleString('ja-JP'),
+        result,
+      };
+      const updated = [...items, newItem].slice(-MAX_HISTORY);
+      await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      setLastSavedDate(newItem.date);
+      setSaveStatus('saved');
+      console.log('[compare][save] saved id:', newItem.id, 'score:', result.score, 'total items:', updated.length);
+    } catch (e: any) {
+      setSaveStatus('idle');
+      console.log('[compare][save] ERROR:', e.message);
+      Alert.alert('保存エラー', e.message);
+    }
+  };
 
   const pickImage = async (
     setter: (uri: string) => void,
@@ -121,6 +180,7 @@ export default function CompareScreen() {
       };
       console.log('[compare][analyze] safe score:', safe.score, 'feedbacks:', safe.feedbacks.length);
       setResult(safe);
+      setSaveStatus('idle');
     } catch (e: any) {
       console.log('[compare][analyze] ERROR:', e.message);
       Alert.alert('エラー', e.message);
@@ -328,6 +388,24 @@ export default function CompareScreen() {
                 </View>
               );
             })}
+
+            {/* 保存ボタン */}
+            <TouchableOpacity
+              style={[styles.saveBtn, saveStatus === 'saved' && styles.saveBtnDone]}
+              onPress={saveResult}
+              disabled={saveStatus !== 'idle'}
+            >
+              {saveStatus === 'saving' ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.saveBtnText}>
+                  {saveStatus === 'saved' ? '✅ 保存済み' : '💾 この結果を保存'}
+                </Text>
+              )}
+            </TouchableOpacity>
+            {lastSavedDate !== null && (
+              <Text style={styles.savedDateText}>最終保存: {lastSavedDate}</Text>
+            )}
           </View>
         )}
       </ScrollView>
@@ -455,4 +533,13 @@ const styles = StyleSheet.create({
   modalOkBtn: { borderRadius: 12, padding: 14, alignItems: 'center' },
   modalOkText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   overlayChevron: { color: '#8E8E93', fontSize: 16, fontWeight: '600', alignSelf: 'center' },
+
+  /* 保存ボタン */
+  saveBtn: {
+    backgroundColor: '#007AFF', borderRadius: 12, padding: 14,
+    alignItems: 'center', marginTop: 20,
+  },
+  saveBtnDone: { backgroundColor: '#34C759' },
+  saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  savedDateText: { textAlign: 'center', fontSize: 12, color: '#8E8E93', marginTop: 6 },
 });

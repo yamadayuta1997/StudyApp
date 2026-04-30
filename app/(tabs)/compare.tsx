@@ -96,11 +96,26 @@ export default function CompareScreen() {
   const [weakTop3, setWeakTop3] = useState<WeakPoint[]>([]);
   const [usageCount, setUsageCount] = useState(0);
   const [limitReached, setLimitReached] = useState(false);
+  const [evalScore, setEvalScore] = useState<number | null>(null);
+  const [improvements, setImprovements] = useState<string[]>([]);
+  const [promptTips, setPromptTips] = useState<string[]>([]);
 
   useFocusEffect(useCallback(() => {
     loadLastSaved();
     refreshUsage();
+    loadPromptTips();
   }, []));
+
+  const loadPromptTips = async () => {
+    try {
+      const raw = await AsyncStorage.getItem('compare_prompt_tips');
+      const tips: string[] = raw ? JSON.parse(raw) : [];
+      setPromptTips(tips);
+      console.log('[compare][promptTips] loaded:', tips.length, 'tips');
+    } catch (e: any) {
+      console.log('[compare][promptTips] load error:', e.message);
+    }
+  };
 
   const refreshUsage = async () => {
     const count = await getUsageCount();
@@ -146,6 +161,13 @@ export default function CompareScreen() {
       setSaveStatus('saved');
       setWeakTop3(computeWeakness(updated));
       console.log('[compare][save] saved id:', newItem.id, 'score:', result.score, 'total items:', updated.length);
+      // 改善案を promptTips に蓄積（次回分析に反映）
+      if (improvements.length > 0) {
+        const newTips = [...promptTips, ...improvements].slice(-10);
+        await AsyncStorage.setItem('compare_prompt_tips', JSON.stringify(newTips));
+        setPromptTips(newTips);
+        console.log('[compare][save] promptTips updated:', newTips.length);
+      }
     } catch (e: any) {
       setSaveStatus('idle');
       console.log('[compare][save] ERROR:', e.message);
@@ -204,14 +226,16 @@ export default function CompareScreen() {
     }
     console.log('[compare][analyze] usage count:', usage.count, 'remaining:', usage.remaining);
 
-    console.log('[compare][analyze] b64 len answer:', answerB64.length, 'model:', modelB64.length);
+    console.log('[compare][analyze] b64 len answer:', answerB64.length, 'model:', modelB64.length, 'promptTips:', promptTips.length);
     setLoading(true);
     setResult(null);
+    setEvalScore(null);
+    setImprovements([]);
     try {
       const resp = await fetch(`${SERVER}/grade-compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answerImage: answerB64, modelAnswerImage: modelB64 }),
+        body: JSON.stringify({ answerImage: answerB64, modelAnswerImage: modelB64, promptTips }),
       });
       console.log('[compare][analyze] status:', resp.status);
       const data = await resp.json();
@@ -227,8 +251,12 @@ export default function CompareScreen() {
         modelSteps: data.modelSteps ?? { issueRecognition: '-', premise: '-', logic: '-', conclusion: '-' },
         textbookRef: data.textbookRef ?? undefined,
       };
-      console.log('[compare][analyze] safe score:', safe.score, 'feedbacks:', safe.feedbacks.length);
+      const es = typeof data.evalScore === 'number' ? data.evalScore : null;
+      const imps: string[] = Array.isArray(data.improvements) ? data.improvements : [];
+      console.log('[compare][analyze] safe score:', safe.score, 'evalScore:', es, 'retryCount:', data.retryCount, 'improvements:', imps.length);
       setResult(safe);
+      setEvalScore(es);
+      setImprovements(imps);
       setSaveStatus('idle');
     } catch (e: any) {
       console.log('[compare][analyze] ERROR:', e.message);
@@ -519,6 +547,33 @@ export default function CompareScreen() {
               );
             })}
 
+            {/* 品質評価バッジ */}
+            {evalScore !== null && (() => {
+              const qual = evalScore >= 80 ? { label: '高品質', color: '#065F46', bg: '#D1FAE5' }
+                : evalScore >= 60 ? { label: '普通', color: '#92400E', bg: '#FEF3C7' }
+                : { label: '低品質（再生成推奨）', color: '#991B1B', bg: '#FEE2E2' };
+              return (
+                <View style={[styles.evalBadge, { backgroundColor: qual.bg }]}>
+                  <Text style={[styles.evalBadgeText, { color: qual.color }]}>
+                    🤖 AI自己採点: {evalScore}点（{qual.label}）
+                  </Text>
+                </View>
+              );
+            })()}
+
+            {/* 改善案（低品質時のみ表示） */}
+            {evalScore !== null && evalScore < 60 && improvements.length > 0 && (
+              <View style={styles.improvementsCard}>
+                <Text style={styles.improvementsTitle}>💡 改善ポイント（次回に反映）</Text>
+                {improvements.map((imp, i) => (
+                  <Text key={i} style={styles.improvementItem}>• {imp}</Text>
+                ))}
+                <TouchableOpacity style={styles.retryBtn} onPress={analyze}>
+                  <Text style={styles.retryBtnText}>🔄 再生成する</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* 保存ボタン（プライマリ CTA） */}
             <TouchableOpacity
               style={[styles.saveBtn, saveStatus === 'saved' && styles.saveBtnDone]}
@@ -666,6 +721,21 @@ const styles = StyleSheet.create({
   modalOkBtn: { borderRadius: 12, padding: 14, alignItems: 'center' },
   modalOkText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   overlayChevron: { color: '#8E8E93', fontSize: 16, fontWeight: '600', alignSelf: 'center' },
+
+  /* 評価ループ */
+  evalBadge: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 12, alignItems: 'center' },
+  evalBadgeText: { fontSize: 13, fontWeight: '600' },
+  improvementsCard: {
+    backgroundColor: '#FEF2F2', borderRadius: 12, padding: 14, marginBottom: 14,
+    borderWidth: 1, borderColor: '#FECACA',
+  },
+  improvementsTitle: { fontSize: 13, fontWeight: '700', color: '#991B1B', marginBottom: 8 },
+  improvementItem: { fontSize: 13, color: '#7F1D1D', lineHeight: 20, marginBottom: 4 },
+  retryBtn: {
+    backgroundColor: '#DC2626', borderRadius: 10, padding: 12,
+    alignItems: 'center', marginTop: 10,
+  },
+  retryBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
 
   /* 制限 */
   limitBox: {

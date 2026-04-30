@@ -413,9 +413,65 @@ app.post("/chat", async (req, res) => {
 });
 
 // ===== 比較添削エンドポイント =====
+// ---- 評価ツール定義 ----
+const EVAL_TOOL = {
+  name: "evaluate_grade",
+  description: "採点結果の品質を0-100で評価し、改善案を返す",
+  input_schema: {
+    type: "object",
+    properties: {
+      score: { type: "integer", minimum: 0, maximum: 100, description: "品質スコア。feedbackが具体的・正確なら高得点" },
+      improvements: {
+        type: "array", maxItems: 3,
+        items: { type: "string", description: "次回生成に向けた具体的な改善指示" },
+        description: "スコアが低い場合の改善案（最大3件）",
+      },
+    },
+    required: ["score", "improvements"],
+  },
+};
+
+async function evaluateGrade(result, answerText, modelText) {
+  try {
+    const evalRes = await client.messages.create({
+      model: "claude-sonnet-4-5",
+      max_tokens: 500,
+      tools: [EVAL_TOOL],
+      tool_choice: { type: "tool", name: "evaluate_grade" },
+      messages: [{
+        role: "user",
+        content: `以下の採点結果を品質評価してください。
+
+【採点対象】
+受験生の答案: ${answerText.slice(0, 300)}
+模範解答: ${modelText.slice(0, 300)}
+
+【採点結果】
+スコア: ${result.score}点
+feedbacks: ${JSON.stringify(result.feedbacks)}
+answerSteps: ${JSON.stringify(result.answerSteps)}
+
+評価基準：
+1. feedbacksのpointが「○○の論点を△△と誤認している」のように具体的か（曖昧表現は減点）
+2. scoreが答案内容と模範解答の差異から妥当に導かれているか
+3. answerStepsが答案から正しく抽出されているか
+4. 改善可能な点があれば具体的な指示として返すこと`,
+      }],
+    });
+    const toolBlock = evalRes.content.find((b) => b.type === "tool_use" && b.name === "evaluate_grade");
+    if (!toolBlock) return { score: 70, improvements: [] };
+    const evalData = toolBlock.input;
+    console.log("[grade-compare][eval] score:", evalData.score, "improvements:", evalData.improvements?.length);
+    return { score: evalData.score ?? 70, improvements: evalData.improvements ?? [] };
+  } catch (e) {
+    console.error("[grade-compare][eval] error:", e.message);
+    return { score: 70, improvements: [] };
+  }
+}
+
 app.post("/grade-compare", async (req, res) => {
   try {
-    const { answerImage, modelAnswerImage, modelAnswerText, subject } = req.body;
+    const { answerImage, modelAnswerImage, modelAnswerText, subject, promptTips } = req.body;
 
     if (!answerImage) {
       return res.status(400).json({ error: "答案画像が必要です" });
@@ -507,14 +563,25 @@ app.post("/grade-compare", async (req, res) => {
       },
     };
 
-    const analysisRes = await client.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 2000,
-      tools: [GRADE_TOOL],
-      tool_choice: { type: "tool", name: "grade_answer" },
-      messages: [{
-        role: "user",
-        content: `あなたはCPA（公認会計士）試験の答案添削AIです。
+    const tipsContext = Array.isArray(promptTips) && promptTips.length > 0
+      ? `\n\n【過去の改善指示（必ず反映すること）】\n${promptTips.slice(-3).map((t, i) => `${i + 1}. ${t}`).join("\n")}`
+      : "";
+
+    // 評価ループ（最大2リトライ = 計3回）
+    const MAX_RETRIES = 2;
+    let result, evalScore = 70, evalImprovements = [], retryCount = 0;
+
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      let analysisRes;
+      try {
+        analysisRes = await client.messages.create({
+          model: "claude-opus-4-5",
+          max_tokens: 2000,
+          tools: [GRADE_TOOL],
+          tool_choice: { type: "tool", name: "grade_answer" },
+          messages: [{
+            role: "user",
+            content: `あなたはCPA（公認会計士）試験の答案添削AIです。
 科目: ${subject || "不明"}
 
 【受験生の答案】
@@ -528,25 +595,48 @@ ${modelText}
 - point は「この問題は○○の論点ですが、△△として処理しています」のように具体的に記述
 - 「少し違う」「概ね正しい」などの曖昧表現は禁止
 - 論点認識のズレがある場合は必ず type: "論点誤認" で指摘する
-- 正解でも減点リスクがある表現は指摘すること`,
-      }],
-    });
+- 正解でも減点リスクがある表現は指摘すること${tipsContext}`,
+          }],
+        });
+      } catch (genErr) {
+        console.error(`[grade-compare] attempt ${attempt + 1} generation error:`, genErr.message);
+        if (attempt === MAX_RETRIES) return res.status(500).json({ error: genErr.message });
+        continue;
+      }
 
-    let result;
-    try {
       const toolBlock = analysisRes.content.find((b) => b.type === "tool_use" && b.name === "grade_answer");
-      if (!toolBlock) throw new Error("tool_use block not found in response");
+      if (!toolBlock) {
+        console.error(`[grade-compare] attempt ${attempt + 1} tool_use block not found`);
+        if (attempt === MAX_RETRIES) return res.status(500).json({ error: "解析結果の取得に失敗しました" });
+        continue;
+      }
+
       result = toolBlock.input;
-      // feedbacks を 1〜5 件にクランプ（安全策）
       if (!Array.isArray(result.feedbacks) || result.feedbacks.length === 0) {
         result.feedbacks = [{ priority: 1, type: "前提不足", point: "解析結果から具体的なフィードバックを抽出できませんでした。再度試行してください。", color: "yellow" }];
       }
       result.feedbacks = result.feedbacks.slice(0, 5);
-      console.log("[grade-compare] score:", result.score, "passed:", result.passed, "feedbacks:", result.feedbacks.length);
-    } catch (parseErr) {
-      console.error("[grade-compare] tool_use extraction failed:", parseErr.message, analysisRes.content);
-      return res.status(500).json({ error: "解析結果の取得に失敗しました: " + parseErr.message });
+      retryCount = attempt;
+      console.log(`[grade-compare] attempt ${attempt + 1} score:`, result.score, "feedbacks:", result.feedbacks.length);
+
+      // 品質評価
+      const evalResult = await evaluateGrade(result, answerText, modelText);
+      evalScore = evalResult.score;
+      evalImprovements = evalResult.improvements;
+      console.log(`[grade-compare] attempt ${attempt + 1} evalScore:`, evalScore);
+
+      if (evalScore >= 60) {
+        console.log(`[grade-compare] quality OK (evalScore=${evalScore}), proceeding`);
+        break;
+      }
+      if (attempt < MAX_RETRIES) {
+        console.log(`[grade-compare] evalScore=${evalScore} < 60, retry ${attempt + 2}/${MAX_RETRIES + 1}`);
+      }
     }
+
+    result.evalScore = evalScore;
+    result.retryCount = retryCount;
+    result.improvements = evalImprovements;
 
     // 教科書RAG（既存textbookCacheを利用）
     if (result.feedbacks && result.feedbacks.length > 0) {

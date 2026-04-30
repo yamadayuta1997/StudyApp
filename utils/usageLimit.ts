@@ -9,7 +9,7 @@ const LIMIT_KEY = 'usage_limit';
 type UsageData = { date: string; count: number };
 
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0]; // "YYYY-MM-DD"
+  return new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }); // "YYYY/M/D"
 }
 
 async function readUsage(): Promise<UsageData> {

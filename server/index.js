@@ -411,5 +411,5 @@ app.post("/chat", async (req, res) => {
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`サーバー起動中: http://0.0.0.0:${PORT}`);
+  console.log(`サーバー起動中: http://0.0.0.0:${PORT} (PORT env=${process.env.PORT})`);
 });

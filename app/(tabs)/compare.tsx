@@ -1,10 +1,10 @@
 import * as ImagePicker from 'expo-image-picker';
-import { Platform } from 'react-native';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,13 +20,26 @@ const TYPE_ICON: Record<string, string> = {
   '論点誤認': '🔴', '思考プロセスミス': '🟡', '計算ミス': '🟠', '前提不足': '🔵',
 };
 
+type Feedback = { priority: number; type: string; point: string; color: string };
+type Steps = { issueRecognition: string; premise: string; logic: string; conclusion: string };
+type GradeResult = {
+  score: number;
+  passed: boolean;
+  fatalErrors: number;
+  missingProcess: boolean;
+  feedbacks: Feedback[];
+  answerSteps: Steps;
+  modelSteps: Steps;
+  textbookRef?: string;
+};
+
 export default function CompareScreen() {
   const [answerUri, setAnswerUri] = useState<string | null>(null);
   const [answerB64, setAnswerB64] = useState<string | null>(null);
   const [modelUri, setModelUri] = useState<string | null>(null);
   const [modelB64, setModelB64] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<any>(null);
+  const [result, setResult] = useState<GradeResult | null>(null);
 
   const pickImage = async (
     setter: (uri: string) => void,
@@ -35,25 +48,14 @@ export default function CompareScreen() {
   ) => {
     if (Platform.OS !== 'web') {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!perm.granted) {
-        Alert.alert('フォトライブラリへのアクセス許可が必要です');
-        return;
-      }
+      if (!perm.granted) { Alert.alert('フォトライブラリへのアクセス許可が必要です'); return; }
     }
-    const res = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: 'images',
-      base64: true,
-      quality: 0.7,
-    });
+    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', base64: true, quality: 0.7 });
     console.log(`[compare][${label}] canceled:`, res.canceled);
     if (!res.canceled && res.assets[0]) {
       const asset = res.assets[0];
-      console.log(`[compare][${label}] uri:`, asset.uri);
-      console.log(`[compare][${label}] base64 length:`, asset.base64?.length ?? 'undefined');
-      if (!asset.base64) {
-        Alert.alert('画像の読み込みに失敗しました', 'base64データを取得できませんでした');
-        return;
-      }
+      console.log(`[compare][${label}] uri:`, asset.uri, 'b64 len:', asset.base64?.length ?? 'undef');
+      if (!asset.base64) { Alert.alert('画像の読み込みに失敗しました', 'base64データを取得できませんでした'); return; }
       setter(asset.uri);
       b64Setter(asset.base64);
     }
@@ -65,57 +67,87 @@ export default function CompareScreen() {
     label: string,
   ) => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('カメラ権限が必要です');
-      return;
-    }
-    const res = await ImagePicker.launchCameraAsync({
-      mediaTypes: 'images',
-      base64: true,
-      quality: 0.7,
-    });
+    if (!perm.granted) { Alert.alert('カメラ権限が必要です'); return; }
+    const res = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', base64: true, quality: 0.7 });
     console.log(`[compare][${label}] camera canceled:`, res.canceled);
     if (!res.canceled && res.assets[0]) {
       const asset = res.assets[0];
-      console.log(`[compare][${label}] uri:`, asset.uri);
-      console.log(`[compare][${label}] base64 length:`, asset.base64?.length ?? 'undefined');
-      if (!asset.base64) {
-        Alert.alert('画像の読み込みに失敗しました', 'base64データを取得できませんでした');
-        return;
-      }
+      console.log(`[compare][${label}] uri:`, asset.uri, 'b64 len:', asset.base64?.length ?? 'undef');
+      if (!asset.base64) { Alert.alert('画像の読み込みに失敗しました', 'base64データを取得できませんでした'); return; }
       setter(asset.uri);
       b64Setter(asset.base64);
     }
   };
 
   const analyze = async () => {
-    if (!answerB64 || !modelB64) {
-      Alert.alert('答案と模範解答の両方が必要です');
-      return;
-    }
-    console.log('[compare][analyze] answerB64 length:', answerB64.length);
-    console.log('[compare][analyze] modelB64 length:', modelB64.length);
+    if (!answerB64 || !modelB64) { Alert.alert('答案と模範解答の両方が必要です'); return; }
+    console.log('[compare][analyze] b64 len answer:', answerB64.length, 'model:', modelB64.length);
     setLoading(true);
     setResult(null);
     try {
-      console.log('[compare][analyze] sending to', `${SERVER}/grade-compare`);
       const resp = await fetch(`${SERVER}/grade-compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answerImage: answerB64, modelAnswerImage: modelB64 }),
       });
-      console.log('[compare][analyze] response status:', resp.status);
+      console.log('[compare][analyze] status:', resp.status);
       const data = await resp.json();
-      console.log('[compare][analyze] response data:', JSON.stringify(data).slice(0, 300));
+      console.log('[compare][analyze] data:', JSON.stringify(data).slice(0, 300));
       if (data.error) throw new Error(data.error);
-      console.log('[compare][analyze] score:', data.score, 'passed:', data.passed, 'feedbacks:', data.feedbacks?.length);
-      setResult(data);
+      const safe: GradeResult = {
+        score: typeof data.score === 'number' ? data.score : 0,
+        passed: Boolean(data.passed),
+        fatalErrors: typeof data.fatalErrors === 'number' ? data.fatalErrors : 0,
+        missingProcess: Boolean(data.missingProcess),
+        feedbacks: Array.isArray(data.feedbacks) ? data.feedbacks.slice(0, 5) : [],
+        answerSteps: data.answerSteps ?? { issueRecognition: '-', premise: '-', logic: '-', conclusion: '-' },
+        modelSteps: data.modelSteps ?? { issueRecognition: '-', premise: '-', logic: '-', conclusion: '-' },
+        textbookRef: data.textbookRef ?? undefined,
+      };
+      console.log('[compare][analyze] safe score:', safe.score, 'feedbacks:', safe.feedbacks.length);
+      setResult(safe);
     } catch (e: any) {
       console.log('[compare][analyze] ERROR:', e.message);
       Alert.alert('エラー', e.message);
     } finally {
       setLoading(false);
     }
+  };
+
+  // 答案画像 — resultあり→オーバーレイ付き / なし→プレーン
+  const renderAnswerImage = () => {
+    if (!answerUri) {
+      return (
+        <View style={styles.placeholder}>
+          <Text style={styles.placeholderText}>画像を選択してください</Text>
+        </View>
+      );
+    }
+    const feedbacks = result?.feedbacks ?? [];
+    return (
+      <View style={styles.imageContainer}>
+        <Image source={{ uri: answerUri }} style={styles.fullImage} resizeMode="contain" />
+        {result !== null && feedbacks.length > 0 && (
+          <View style={styles.feedbackOverlay}>
+            <View style={styles.overlayHeader}>
+              <Text style={styles.overlayTitle}>📌 指摘事項</Text>
+              <View style={styles.overlayBadge}>
+                <Text style={styles.overlayBadgeText}>{feedbacks.length}件</Text>
+              </View>
+            </View>
+            {feedbacks.map((fb, i) => (
+              <View key={i} style={styles.overlayRow}>
+                <View style={[styles.overlayDot, { backgroundColor: COLOR_MAP[fb.color] || '#999' }]} />
+                <View style={styles.overlayTextWrap}>
+                  <Text style={styles.overlayType}>{TYPE_ICON[fb.type] || '•'} {fb.type}</Text>
+                  <Text style={styles.overlayPoint} numberOfLines={2}>{fb.point}</Text>
+                </View>
+              </View>
+            ))}
+          </View>
+        )}
+      </View>
+    );
   };
 
   return (
@@ -132,13 +164,7 @@ export default function CompareScreen() {
             <Text style={styles.btnText}>🖼️ 選択</Text>
           </TouchableOpacity>
         </View>
-        {answerUri ? (
-          <Image source={{ uri: answerUri }} style={styles.preview} />
-        ) : (
-          <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>画像を選択してください</Text>
-          </View>
-        )}
+        {renderAnswerImage()}
 
         <Text style={styles.label}>② 模範解答</Text>
         <View style={styles.row}>
@@ -150,7 +176,7 @@ export default function CompareScreen() {
           </TouchableOpacity>
         </View>
         {modelUri ? (
-          <Image source={{ uri: modelUri }} style={styles.preview} />
+          <Image source={{ uri: modelUri }} style={styles.preview} resizeMode="contain" />
         ) : (
           <View style={styles.placeholder}>
             <Text style={styles.placeholderText}>画像を選択してください</Text>
@@ -172,14 +198,13 @@ export default function CompareScreen() {
           </View>
         )}
 
-        {result && (
+        {result !== null && (
           <View style={styles.resultBox}>
+            {/* スコア */}
             <View style={styles.scoreRow}>
-              <Text style={styles.scoreNum}>{result.score ?? '-'}点</Text>
+              <Text style={styles.scoreNum}>{result.score}点</Text>
               <View style={[styles.badge, result.passed ? styles.pass : styles.fail]}>
-                <Text style={styles.badgeText}>
-                  {result.passed ? '合格ライン達成' : '合格ライン未達'}
-                </Text>
+                <Text style={styles.badgeText}>{result.passed ? '合格ライン達成' : '合格ライン未達'}</Text>
               </View>
             </View>
             {result.fatalErrors > 0 && (
@@ -189,36 +214,25 @@ export default function CompareScreen() {
               <Text style={styles.warn}>⚠️ 途中式がないため精度が低下しています</Text>
             )}
 
-            <Text style={styles.sectionTitle}>📌 指摘事項</Text>
-            {Array.isArray(result.feedbacks) && result.feedbacks.map((fb: any, i: number) => (
-              <View key={i} style={[styles.feedbackCard, { borderLeftColor: COLOR_MAP[fb.color] || '#ccc' }]}>
-                <Text style={styles.feedbackType}>{TYPE_ICON[fb.type] || '•'} {fb.type}</Text>
-                <Text style={styles.feedbackPoint}>{fb.point}</Text>
-              </View>
-            ))}
-
-            {result.textbookRef ? (
+            {/* 教科書参照 */}
+            {Boolean(result.textbookRef) && (
               <View style={styles.textbookBox}>
                 <Text style={styles.sectionTitle}>📚 教科書参照</Text>
                 <Text style={styles.textbookRef}>{result.textbookRef}</Text>
               </View>
-            ) : null}
+            )}
 
+            {/* 思考ステップ比較 */}
             <Text style={styles.sectionTitle}>🧠 思考ステップ比較</Text>
             {(['issueRecognition', 'premise', 'logic', 'conclusion'] as const).map((key) => {
               const labels: Record<string, string> = {
-                issueRecognition: '論点認識',
-                premise: '前提整理',
-                logic: '計算/ロジック',
-                conclusion: '結論',
+                issueRecognition: '論点認識', premise: '前提整理', logic: '計算/ロジック', conclusion: '結論',
               };
-              const match = result.answerSteps?.[key] === result.modelSteps?.[key];
+              const match = result.answerSteps[key] === result.modelSteps[key];
               return (
                 <View key={key} style={styles.stepRow}>
                   <Text style={styles.stepLabel}>{labels[key]}</Text>
-                  <Text style={styles.stepAnswer} numberOfLines={2}>
-                    {result.answerSteps?.[key] || '-'}
-                  </Text>
+                  <Text style={styles.stepAnswer} numberOfLines={2}>{result.answerSteps[key] || '-'}</Text>
                   <Text style={[styles.stepMark, { color: match ? '#34C759' : '#FF3B30' }]}>
                     {match ? '✓' : '✗'}
                   </Text>
@@ -238,29 +252,54 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: 'bold', marginBottom: 20, color: '#1C1C1E' },
   label: { fontSize: 15, fontWeight: '600', color: '#3A3A3C', marginTop: 16, marginBottom: 8 },
   row: { flexDirection: 'row', gap: 10 },
-  btn: {
-    flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 12,
-    alignItems: 'center', borderWidth: 1, borderColor: '#E5E5EA',
-  },
+  btn: { flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#E5E5EA' },
   btnText: { fontSize: 14, color: '#007AFF' },
-  preview: {
-    width: '100%', height: 180, borderRadius: 10, marginTop: 8,
-    resizeMode: 'contain', backgroundColor: '#E5E5EA',
+
+  /* 答案画像コンテナ（オーバーレイ用） */
+  imageContainer: {
+    width: '100%',
+    borderRadius: 12,
+    overflow: 'hidden',
+    marginTop: 8,
+    backgroundColor: '#1C1C1E',
+    minHeight: 180,
   },
+  fullImage: { width: '100%', height: 220 },
+  feedbackOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(10, 12, 20, 0.84)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  overlayHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
+  overlayTitle: { fontSize: 12, fontWeight: '700', color: '#fff' },
+  overlayBadge: { backgroundColor: '#FF3B30', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
+  overlayBadgeText: { fontSize: 11, fontWeight: '700', color: '#fff' },
+  overlayRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 6 },
+  overlayDot: { width: 8, height: 8, borderRadius: 4, marginTop: 4, flexShrink: 0 },
+  overlayTextWrap: { flex: 1 },
+  overlayType: { fontSize: 11, fontWeight: '700', color: '#E5E5EA', marginBottom: 1 },
+  overlayPoint: { fontSize: 11, color: '#C7C7CC', lineHeight: 15 },
+
+  /* 模範解答プレビュー（オーバーレイなし） */
+  preview: { width: '100%', height: 180, borderRadius: 10, marginTop: 8, backgroundColor: '#E5E5EA' },
+
   placeholder: {
     width: '100%', height: 100, borderRadius: 10, marginTop: 8,
     backgroundColor: '#E5E5EA', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: '#D1D1D6', borderStyle: 'dashed',
+    borderWidth: 1, borderColor: '#D1D1D6',
   },
   placeholderText: { color: '#8E8E93', fontSize: 13 },
-  analyzeBtn: {
-    backgroundColor: '#007AFF', borderRadius: 12, padding: 16,
-    alignItems: 'center', marginTop: 24,
-  },
+
+  analyzeBtn: { backgroundColor: '#007AFF', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24 },
   analyzeBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   disabled: { opacity: 0.4 },
   loadingBox: { alignItems: 'center', marginTop: 30, gap: 12 },
   loadingText: { color: '#8E8E93', fontSize: 14 },
+
   resultBox: { marginTop: 24 },
   scoreRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
   scoreNum: { fontSize: 40, fontWeight: 'bold', color: '#1C1C1E' },
@@ -271,12 +310,6 @@ const styles = StyleSheet.create({
   fatal: { color: '#FF3B30', fontSize: 14, marginBottom: 4 },
   warn: { color: '#FF9500', fontSize: 13, marginBottom: 8 },
   sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#1C1C1E', marginTop: 20, marginBottom: 10 },
-  feedbackCard: {
-    backgroundColor: '#fff', borderRadius: 10, padding: 14,
-    marginBottom: 10, borderLeftWidth: 4,
-  },
-  feedbackType: { fontSize: 12, fontWeight: '600', color: '#8E8E93', marginBottom: 4 },
-  feedbackPoint: { fontSize: 14, color: '#1C1C1E', lineHeight: 20 },
   textbookBox: { backgroundColor: '#EEF4FF', borderRadius: 10, padding: 14 },
   textbookRef: { fontSize: 13, color: '#3A3A3C', lineHeight: 18, fontStyle: 'italic' },
   stepRow: {

@@ -315,8 +315,44 @@ export default function CompareScreen() {
       <ScrollView contentContainerStyle={styles.container}>
         <Text style={styles.title}>📝 比較添削</Text>
 
-        {/* 弱点分析 TOP3 */}
-        {weakTop3.length > 0 ? (
+        {/* ステップインジケーター */}
+        {(() => {
+          const step = !answerB64 ? 0 : !modelB64 ? 1 : result === null ? 2 : 3;
+          const hints = [
+            '① 自分の答案を選んでください',
+            '② 模範解答を選んでください',
+            '「分析する」で思考ズレを確認',
+            saveStatus === 'saved' ? '✅ 保存済み。次の問題にチャレンジ！' : '結果を保存して弱点に反映しましょう',
+          ];
+          console.log('[compare][ux] step:', step, 'hint:', hints[step]);
+          return (
+            <>
+              <View style={styles.stepBar}>
+                {['答案', '模範', '分析'].map((label, i) => (
+                  <React.Fragment key={label}>
+                    <View style={styles.stepItem}>
+                      <View style={[styles.stepDot, i <= step - (step === 3 ? 1 : 0) ? styles.stepDotDone : i === step && step < 3 ? styles.stepDotActive : styles.stepDotPending]}>
+                        <Text style={[styles.stepDotText, (i < step || (i === step && step < 3)) ? styles.stepDotTextActive : styles.stepDotTextPending]}>
+                          {i + 1}
+                        </Text>
+                      </View>
+                      <Text style={[styles.stepLabel2, i === step && step < 3 ? styles.stepLabelActive : styles.stepLabelMuted]}>{label}</Text>
+                    </View>
+                    {i < 2 && <View style={[styles.stepLine, i < step ? styles.stepLineDone : styles.stepLinePending]} />}
+                  </React.Fragment>
+                ))}
+              </View>
+              <View style={[styles.hintBanner, step === 3 && saveStatus !== 'saved' ? styles.hintBannerHighlight : styles.hintBannerNeutral]}>
+                <Text style={[styles.hintText, step === 3 && saveStatus !== 'saved' ? styles.hintTextHighlight : styles.hintTextNeutral]}>
+                  {hints[step]}
+                </Text>
+              </View>
+            </>
+          );
+        })()}
+
+        {/* 弱点分析 TOP3（折りたたみ） */}
+        {weakTop3.length > 0 && (
           <View style={styles.weakCard}>
             <Text style={styles.weakTitle}>📊 ミスの傾向 TOP{weakTop3.length}</Text>
             {weakTop3.map((wp, i) => (
@@ -330,30 +366,38 @@ export default function CompareScreen() {
               </View>
             ))}
           </View>
-        ) : (
-          <View style={styles.weakEmpty}>
-            <Text style={styles.weakEmptyText}>結果を保存するとミスの傾向が表示されます</Text>
-          </View>
         )}
 
+        {/* ① 自分の答案 */}
         <Text style={styles.label}>① 自分の答案</Text>
         <View style={styles.row}>
-          <TouchableOpacity style={styles.btn} onPress={() => takePhoto(setAnswerUri, setAnswerB64, 'answer')}>
-            <Text style={styles.btnText}>📷 撮影</Text>
+          <TouchableOpacity style={styles.btnSecondary} onPress={() => takePhoto(setAnswerUri, setAnswerB64, 'answer')}>
+            <Text style={styles.btnSecondaryText}>📷 撮影</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.btn} onPress={() => pickImage(setAnswerUri, setAnswerB64, 'answer')}>
-            <Text style={styles.btnText}>🖼️ 選択</Text>
+          <TouchableOpacity
+            style={[styles.btnSecondary, !answerB64 && styles.btnPrimary]}
+            onPress={() => pickImage(setAnswerUri, setAnswerB64, 'answer')}
+          >
+            <Text style={[styles.btnSecondaryText, !answerB64 && styles.btnPrimaryText]}>
+              {answerB64 ? '🖼️ 選び直す' : '🖼️ 選択'}
+            </Text>
           </TouchableOpacity>
         </View>
         {renderAnswerImage()}
 
+        {/* ② 模範解答 */}
         <Text style={styles.label}>② 模範解答</Text>
         <View style={styles.row}>
-          <TouchableOpacity style={styles.btn} onPress={() => takePhoto(setModelUri, setModelB64, 'model')}>
-            <Text style={styles.btnText}>📷 撮影</Text>
+          <TouchableOpacity style={styles.btnSecondary} onPress={() => takePhoto(setModelUri, setModelB64, 'model')}>
+            <Text style={styles.btnSecondaryText}>📷 撮影</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.btn} onPress={() => pickImage(setModelUri, setModelB64, 'model')}>
-            <Text style={styles.btnText}>🖼️ 選択</Text>
+          <TouchableOpacity
+            style={[styles.btnSecondary, answerB64 && !modelB64 && styles.btnPrimary]}
+            onPress={() => pickImage(setModelUri, setModelB64, 'model')}
+          >
+            <Text style={[styles.btnSecondaryText, answerB64 && !modelB64 && styles.btnPrimaryText]}>
+              {modelB64 ? '🖼️ 選び直す' : '🖼️ 選択'}
+            </Text>
           </TouchableOpacity>
         </View>
         {modelUri ? (
@@ -364,20 +408,21 @@ export default function CompareScreen() {
           </View>
         )}
 
+        {/* プライマリ CTA: 分析ボタン（両画像揃ったら強調） */}
         <TouchableOpacity
-          style={[styles.analyzeBtn, (!answerB64 || !modelB64) && styles.disabled]}
+          style={[styles.analyzeBtn, (!answerB64 || !modelB64 || loading) && styles.analyzeBtnDim]}
           onPress={analyze}
           disabled={!answerB64 || !modelB64 || loading}
         >
-          <Text style={styles.analyzeBtnText}>🔍 思考ズレを分析する</Text>
+          {loading ? (
+            <View style={styles.analyzeBtnInner}>
+              <ActivityIndicator size="small" color="#fff" />
+              <Text style={styles.analyzeBtnText}>解析中...（最大60秒）</Text>
+            </View>
+          ) : (
+            <Text style={styles.analyzeBtnText}>🔍 思考ズレを分析する</Text>
+          )}
         </TouchableOpacity>
-
-        {loading && (
-          <View style={styles.loadingBox}>
-            <ActivityIndicator size="large" color="#007AFF" />
-            <Text style={styles.loadingText}>思考プロセスを解析中...（最大60秒）</Text>
-          </View>
-        )}
 
         {result !== null && (
           <View style={styles.resultBox}>
@@ -437,7 +482,7 @@ export default function CompareScreen() {
               );
             })}
 
-            {/* 保存ボタン */}
+            {/* 保存ボタン（プライマリ CTA） */}
             <TouchableOpacity
               style={[styles.saveBtn, saveStatus === 'saved' && styles.saveBtnDone]}
               onPress={saveResult}
@@ -447,11 +492,14 @@ export default function CompareScreen() {
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
                 <Text style={styles.saveBtnText}>
-                  {saveStatus === 'saved' ? '✅ 保存済み' : '💾 この結果を保存'}
+                  {saveStatus === 'saved' ? '✅ 保存済み' : '💾 弱点分析に保存する'}
                 </Text>
               )}
             </TouchableOpacity>
-            {lastSavedDate !== null && (
+            {saveStatus === 'idle' && (
+              <Text style={styles.saveSub}>保存すると「ミスの傾向」に反映されます</Text>
+            )}
+            {lastSavedDate !== null && saveStatus === 'saved' && (
               <Text style={styles.savedDateText}>最終保存: {lastSavedDate}</Text>
             )}
           </View>
@@ -582,6 +630,44 @@ const styles = StyleSheet.create({
   modalOkText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   overlayChevron: { color: '#8E8E93', fontSize: 16, fontWeight: '600', alignSelf: 'center' },
 
+  /* ステップインジケーター */
+  stepBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  stepItem: { alignItems: 'center', gap: 4 },
+  stepDot: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  stepDotDone: { backgroundColor: '#34C759' },
+  stepDotActive: { backgroundColor: '#007AFF' },
+  stepDotPending: { backgroundColor: '#E5E5EA' },
+  stepDotText: { fontSize: 13, fontWeight: '700' },
+  stepDotTextActive: { color: '#fff' },
+  stepDotTextPending: { color: '#8E8E93' },
+  stepLine: { flex: 1, height: 2, marginHorizontal: 4, marginBottom: 14 },
+  stepLineDone: { backgroundColor: '#34C759' },
+  stepLinePending: { backgroundColor: '#E5E5EA' },
+  stepLabel2: { fontSize: 10, fontWeight: '600' },
+  stepLabelActive: { color: '#007AFF' },
+  stepLabelMuted: { color: '#8E8E93' },
+
+  /* 次の行動バナー */
+  hintBanner: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 16, alignItems: 'center' },
+  hintBannerHighlight: { backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE' },
+  hintBannerNeutral: { backgroundColor: '#F2F2F7' },
+  hintText: { fontSize: 14, fontWeight: '600' },
+  hintTextHighlight: { color: '#1D4ED8' },
+  hintTextNeutral: { color: '#6B7280' },
+
+  /* セカンダリ / プライマリ 画像ボタン */
+  btnSecondary: {
+    flex: 1, borderRadius: 10, padding: 11, alignItems: 'center',
+    borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#fff',
+  },
+  btnSecondaryText: { fontSize: 13, color: '#6B7280' },
+  btnPrimary: { borderColor: '#007AFF', backgroundColor: '#EFF6FF' },
+  btnPrimaryText: { color: '#007AFF', fontWeight: '600' },
+
+  /* 分析ボタン */
+  analyzeBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  analyzeBtnDim: { opacity: 0.45 },
+
   /* 弱点分析 */
   weakCard: {
     backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 16,
@@ -607,5 +693,6 @@ const styles = StyleSheet.create({
   },
   saveBtnDone: { backgroundColor: '#34C759' },
   saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  saveSub: { textAlign: 'center', fontSize: 12, color: '#6B7280', marginTop: 6 },
   savedDateText: { textAlign: 'center', fontSize: 12, color: '#8E8E93', marginTop: 6 },
 });

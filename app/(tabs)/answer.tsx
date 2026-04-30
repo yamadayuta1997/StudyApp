@@ -41,6 +41,7 @@ export default function AnswerScreen() {
   const [pdfLoading, setPdfLoading] = useState(false);
   const [imageLoading, setImageLoading] = useState(false);
   const [imageFileName, setImageFileName] = useState("");
+  const [imagePreviewUri, setImagePreviewUri] = useState<string | null>(null);
   const [pdfInfo, setPdfInfo] = useState<{
     totalPages: number; fromPage: number; toPage: number; imagePages?: number[];
   } | null>(null);
@@ -179,6 +180,7 @@ export default function AnswerScreen() {
     const image = pickerResult.assets[0];
     const fileName = image.fileName || (useCamera ? "camera.jpg" : "image.jpg");
     console.log("[handleImagePick] image:", { uri: image.uri, mimeType: image.mimeType, fileName, width: image.width, height: image.height });
+    setImagePreviewUri(image.uri);
     setImageLoading(true);
     setImageFileName(fileName);
 
@@ -361,6 +363,9 @@ export default function AnswerScreen() {
           {imageLoading ? <ActivityIndicator size="small" color="#a21caf" /> : <Text style={[styles.imageButtonText, { color: "#a21caf" }]}>📸 カメラ</Text>}
         </TouchableOpacity>
       </View>
+      {imagePreviewUri && (
+        <Image source={{ uri: imagePreviewUri }} style={styles.imagePreview} resizeMode="contain" />
+      )}
       {imageLoading && (
         <View style={styles.ocrStatus}>
           <ActivityIndicator size="small" color="#7c3aed" />
@@ -609,6 +614,7 @@ const styles = StyleSheet.create({
   imageButtonRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
   imageButton: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1.5, alignItems: "center" },
   imageButtonText: { fontSize: 13, fontWeight: "600" },
+  imagePreview: { width: "100%", height: 160, borderRadius: 10, backgroundColor: "#e5e7eb", marginBottom: 10 },
   ocrStatus: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f5f3ff", borderRadius: 8, padding: 10, marginBottom: 10 },
   ocrStatusText: { color: "#7c3aed", fontSize: 13 },
   ocrDone: { backgroundColor: "#f0fdf4", borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: "#bbf7d0" },

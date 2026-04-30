@@ -18,6 +18,18 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 const SERVER = 'https://studyapp-production-66d5.up.railway.app';
 
 const COLOR_MAP: Record<string, string> = { red: '#FF3B30', yellow: '#FF9500', green: '#34C759' };
+
+// 日本語対応のJaccard類似度（1文字単位で分割）
+function jaccardSim(a: string, b: string): number {
+  if (!a && !b) return 1;
+  if (!a || !b) return 0;
+  const setA = new Set(a.replace(/\s+/g, '').split(''));
+  const setB = new Set(b.replace(/\s+/g, '').split(''));
+  let intersection = 0;
+  setA.forEach((c) => { if (setB.has(c)) intersection++; });
+  const union = setA.size + setB.size - intersection;
+  return union > 0 ? intersection / union : 0;
+}
 const TYPE_ICON: Record<string, string> = {
   '論点誤認': '🔴', '思考プロセスミス': '🟡', '計算ミス': '🟠', '前提不足': '🔵',
 };
@@ -283,20 +295,36 @@ export default function CompareScreen() {
               </View>
             )}
 
-            {/* 思考ステップ比較 */}
-            <Text style={styles.sectionTitle}>🧠 思考ステップ比較</Text>
+            {/* 思考ステップ差分 */}
+            <Text style={styles.sectionTitle}>🧠 思考ステップ差分</Text>
             {(['issueRecognition', 'premise', 'logic', 'conclusion'] as const).map((key) => {
               const labels: Record<string, string> = {
                 issueRecognition: '論点認識', premise: '前提整理', logic: '計算/ロジック', conclusion: '結論',
               };
-              const match = result.answerSteps[key] === result.modelSteps[key];
+              const answerText = result.answerSteps[key] || '';
+              const modelText = result.modelSteps[key] || '';
+              const sim = jaccardSim(answerText, modelText);
+              const isClose = sim >= 0.25;
+              console.log(`[compare][diff] ${key} sim=${sim.toFixed(2)} isClose=${isClose}`);
               return (
-                <View key={key} style={styles.stepRow}>
-                  <Text style={styles.stepLabel}>{labels[key]}</Text>
-                  <Text style={styles.stepAnswer} numberOfLines={2}>{result.answerSteps[key] || '-'}</Text>
-                  <Text style={[styles.stepMark, { color: match ? '#34C759' : '#FF3B30' }]}>
-                    {match ? '✓' : '✗'}
-                  </Text>
+                <View key={key} style={styles.diffCard}>
+                  <View style={styles.diffLabelRow}>
+                    <Text style={styles.diffStepLabel}>{labels[key]}</Text>
+                    <View style={[styles.diffBadge, { backgroundColor: isClose ? '#D1FAE5' : '#FEE2E2' }]}>
+                      <Text style={[styles.diffBadgeText, { color: isClose ? '#065F46' : '#991B1B' }]}>
+                        {isClose ? '✓ 類似' : '✗ 相違'}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={[styles.diffRow, { backgroundColor: isClose ? '#F0FFF4' : '#FFF5F5' }]}>
+                    <Text style={styles.diffSideLabel}>自分</Text>
+                    <Text style={styles.diffText}>{answerText || '-'}</Text>
+                  </View>
+                  <View style={styles.diffDivider} />
+                  <View style={[styles.diffRow, styles.diffModelRow]}>
+                    <Text style={styles.diffSideLabel}>模範</Text>
+                    <Text style={styles.diffText}>{modelText || '-'}</Text>
+                  </View>
                 </View>
               );
             })}
@@ -380,6 +408,28 @@ const styles = StyleSheet.create({
   stepLabel: { fontSize: 11, color: '#8E8E93', width: 60 },
   stepAnswer: { flex: 1, fontSize: 12, color: '#1C1C1E' },
   stepMark: { fontSize: 16, fontWeight: 'bold' },
+
+  /* 思考ステップ差分 */
+  diffCard: {
+    backgroundColor: '#fff', borderRadius: 12, marginBottom: 10,
+    overflow: 'hidden', borderWidth: 1, borderColor: '#E5E7EB',
+  },
+  diffLabelRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#F9FAFB',
+    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+  },
+  diffStepLabel: { fontSize: 13, fontWeight: '700', color: '#374151' },
+  diffBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+  diffBadgeText: { fontSize: 11, fontWeight: '700' },
+  diffRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10 },
+  diffModelRow: { backgroundColor: '#F0FFF4' },
+  diffSideLabel: {
+    fontSize: 10, fontWeight: '700', color: '#6B7280',
+    width: 28, paddingTop: 2, flexShrink: 0,
+  },
+  diffText: { flex: 1, fontSize: 13, color: '#1C1C1E', lineHeight: 18 },
+  diffDivider: { height: 1, backgroundColor: '#E5E7EB' },
 
   /* フィードバック詳細モーダル */
   modalBackdrop: {

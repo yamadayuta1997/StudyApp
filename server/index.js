@@ -13,8 +13,15 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ---- Textbook cache with Volume persistence ----
-const DATA_DIR = "/app/data";
+const DATA_DIR = process.env.DATA_DIR || "/app/data";
 const TEXTBOOKS_FILE = path.join(DATA_DIR, "textbooks.json");
+
+// Ensure data directory exists at startup
+try {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+} catch (e) {
+  console.error("DATA_DIR create error (non-fatal):", e.message);
+}
 
 let textbookCache = new Map();
 

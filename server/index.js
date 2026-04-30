@@ -456,10 +456,62 @@ app.post("/grade-compare", async (req, res) => {
       return res.status(400).json({ error: "模範解答（画像またはテキスト）が必要です" });
     }
 
-    // 思考ステップ分解 + 差分分析
+    // 思考ステップ分解 + 差分分析 — tool_use で JSON を強制
+    const GRADE_TOOL = {
+      name: "grade_answer",
+      description: "CPA試験答案の採点・思考ズレ分析結果を返す",
+      input_schema: {
+        type: "object",
+        properties: {
+          score: { type: "integer", minimum: 0, maximum: 100, description: "得点（0〜100）" },
+          passed: { type: "boolean", description: "80点以上でtrue" },
+          fatalErrors: { type: "integer", minimum: 0, description: "致命的ミスの件数" },
+          missingProcess: { type: "boolean", description: "途中式が欠落している場合true" },
+          answerSteps: {
+            type: "object",
+            properties: {
+              issueRecognition: { type: "string", description: "受験生の論点認識" },
+              premise: { type: "string", description: "受験生の前提整理" },
+              logic: { type: "string", description: "受験生の計算/ロジック" },
+              conclusion: { type: "string", description: "受験生の結論" },
+            },
+            required: ["issueRecognition", "premise", "logic", "conclusion"],
+          },
+          modelSteps: {
+            type: "object",
+            properties: {
+              issueRecognition: { type: "string" },
+              premise: { type: "string" },
+              logic: { type: "string" },
+              conclusion: { type: "string" },
+            },
+            required: ["issueRecognition", "premise", "logic", "conclusion"],
+          },
+          feedbacks: {
+            type: "array",
+            minItems: 1,
+            maxItems: 5,
+            items: {
+              type: "object",
+              properties: {
+                priority: { type: "integer", minimum: 1, maximum: 5 },
+                type: { type: "string", enum: ["論点誤認", "思考プロセスミス", "計算ミス", "前提不足"] },
+                point: { type: "string", minLength: 20, description: "具体的な指摘。「〜の論点を△△と誤認している」など曖昧表現禁止" },
+                color: { type: "string", enum: ["red", "yellow", "green"] },
+              },
+              required: ["priority", "type", "point", "color"],
+            },
+          },
+        },
+        required: ["score", "passed", "fatalErrors", "missingProcess", "answerSteps", "modelSteps", "feedbacks"],
+      },
+    };
+
     const analysisRes = await client.messages.create({
       model: "claude-opus-4-5",
       max_tokens: 2000,
+      tools: [GRADE_TOOL],
+      tool_choice: { type: "tool", name: "grade_answer" },
       messages: [{
         role: "user",
         content: `あなたはCPA（公認会計士）試験の答案添削AIです。
@@ -471,48 +523,29 @@ ${answerText}
 【模範解答】
 ${modelText}
 
-以下のJSON形式のみで回答してください（コードブロック不要）:
-{
-  "score": <0-100の整数>,
-  "passed": <80点以上でtrue>,
-  "fatalErrors": <致命的ミスの件数>,
-  "answerSteps": {
-    "issueRecognition": "<論点認識の内容>",
-    "premise": "<前提整理の内容>",
-    "logic": "<計算/ロジックの内容>",
-    "conclusion": "<結論>"
-  },
-  "modelSteps": {
-    "issueRecognition": "<論点認識>",
-    "premise": "<前提整理>",
-    "logic": "<計算/ロジック>",
-    "conclusion": "<結論>"
-  },
-  "feedbacks": [
-    {
-      "priority": 1,
-      "type": "<論点誤認|思考プロセスミス|計算ミス|前提不足>",
-      "point": "<具体的な指摘。例：この問題は〇〇の論点ですが、△△として処理しています>",
-      "color": "<red|yellow|green>"
-    }
-  ],
-  "missingProcess": <途中式がない場合true>
-}
-feedbacksは最大5件、priorityの昇順。正解でも減点リスクがあれば指摘すること。`
-      }]
+以下の点を必ず守って採点してください：
+- feedbacksは最低1件・最大5件（priorityの昇順）
+- point は「この問題は○○の論点ですが、△△として処理しています」のように具体的に記述
+- 「少し違う」「概ね正しい」などの曖昧表現は禁止
+- 論点認識のズレがある場合は必ず type: "論点誤認" で指摘する
+- 正解でも減点リスクがある表現は指摘すること`,
+      }],
     });
 
     let result;
     try {
-      let raw = analysisRes.content[0].text.trim();
-      console.log("[grade-compare] raw response (first 200):", raw.slice(0, 200));
-      // Claude sometimes wraps JSON in markdown code blocks
-      raw = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "");
-      result = JSON.parse(raw);
-      console.log("[grade-compare] parsed score:", result.score, "feedbacks:", result.feedbacks?.length);
+      const toolBlock = analysisRes.content.find((b) => b.type === "tool_use" && b.name === "grade_answer");
+      if (!toolBlock) throw new Error("tool_use block not found in response");
+      result = toolBlock.input;
+      // feedbacks を 1〜5 件にクランプ（安全策）
+      if (!Array.isArray(result.feedbacks) || result.feedbacks.length === 0) {
+        result.feedbacks = [{ priority: 1, type: "前提不足", point: "解析結果から具体的なフィードバックを抽出できませんでした。再度試行してください。", color: "yellow" }];
+      }
+      result.feedbacks = result.feedbacks.slice(0, 5);
+      console.log("[grade-compare] score:", result.score, "passed:", result.passed, "feedbacks:", result.feedbacks.length);
     } catch (parseErr) {
-      console.error("[grade-compare] JSON parse failed:", parseErr.message);
-      return res.status(500).json({ error: "解析結果のパースに失敗しました" });
+      console.error("[grade-compare] tool_use extraction failed:", parseErr.message, analysisRes.content);
+      return res.status(500).json({ error: "解析結果の取得に失敗しました: " + parseErr.message });
     }
 
     // 教科書RAG（既存textbookCacheを利用）

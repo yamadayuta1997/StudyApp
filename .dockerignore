@@ -1,10 +1,9 @@
-node_modules
-server/node_modules
+**/node_modules
+.git
+*.md
 app/
 assets/
 components/
 constants/
 hooks/
 scripts/
-*.md
-.git

@@ -525,7 +525,8 @@ export default function CompareScreen() {
               const answerText = result.answerSteps[key] || '';
               const modelText = result.modelSteps[key] || '';
               const sim = jaccardSim(answerText, modelText);
-              const isClose = sim >= 0.25;
+              const threshold = answerText.length <= 10 ? 0.15 : 0.25;
+              const isClose = sim >= threshold;
               console.log(`[compare][diff] ${key} sim=${sim.toFixed(2)} isClose=${isClose}`);
               return (
                 <View key={key} style={styles.diffCard}>

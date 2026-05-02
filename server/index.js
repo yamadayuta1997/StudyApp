@@ -83,7 +83,18 @@ app.get("/health", async (req, res) => {
 });
 
 // ---- Textbook: Register ----
-app.post("/textbook/register", upload.single("pdf"), async (req, res) => {
+app.post("/textbook/register", (req, res, next) => {
+  // multer のエラー（LIMIT_FILE_SIZE 等）を JSON で返すためにラップ
+  upload.single("pdf")(req, res, (err) => {
+    if (err) {
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return res.status(413).json({ error: "PDFファイルが大きすぎます（最大20MB）。", code: "LIMIT_FILE_SIZE" });
+      }
+      return res.status(400).json({ error: `アップロードエラー: ${err.message}`, code: err.code || "UPLOAD_ERROR" });
+    }
+    next();
+  });
+}, async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: "PDFファイルが必要です。" });
     const { subject, bookName, description = "" } = req.body;
@@ -765,6 +776,18 @@ ${modelText}
     console.error("/grade-compare error:", err);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ---- Global error handler (must be last middleware) ----
+// Express のデフォルト HTML エラーページではなく常に JSON を返す
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error("[global-error]", err.message, err.stack?.split("\n")[1] || "");
+  const status = err.status || err.statusCode || 500;
+  if (err.code === "LIMIT_FILE_SIZE") {
+    return res.status(413).json({ error: "PDFファイルが大きすぎます（最大20MB）。", code: "LIMIT_FILE_SIZE" });
+  }
+  res.status(status).json({ error: err.message || "Internal server error" });
 });
 
 // ---- Helpers ----

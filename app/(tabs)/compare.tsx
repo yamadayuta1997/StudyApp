@@ -4,6 +4,8 @@ import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { DAILY_LIMIT, checkAndIncrement, getDeviceId, getUsageCount, isDevDevice } from '@/utils/usageLimit';
 import { isCloseEnough, jaccardSim } from '@/utils/jaccardSim';
+import { computeWeakness, WeakPoint } from '@/utils/computeWeakness';
+import { HistoryItem } from '@/app/(tabs)/explore';
 import {
   ActivityIndicator,
   Alert,
@@ -60,26 +62,6 @@ type CompareHistoryItem = {
 const STORAGE_KEY = 'compare_history';
 const MAX_HISTORY = 20;
 
-type WeakPoint = { type: string; count: number };
-
-function computeWeakness(items: CompareHistoryItem[]): WeakPoint[] {
-  const counts: Record<string, number> = {};
-  items.forEach((item) => {
-    const feedbacks = item.result?.feedbacks;
-    if (!Array.isArray(feedbacks)) return;
-    feedbacks.forEach((fb) => {
-      if (typeof fb.type === 'string' && fb.type.length > 0) {
-        counts[fb.type] = (counts[fb.type] || 0) + 1;
-      }
-    });
-  });
-  const result = Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(([type, count]) => ({ type, count }));
-  console.log('[compare][weakness] counts:', JSON.stringify(counts), 'top3:', JSON.stringify(result));
-  return result;
-}
 
 export default function CompareScreen() {
   const [answerUri, setAnswerUri] = useState<string | null>(null);
@@ -157,7 +139,9 @@ export default function CompareScreen() {
       const items: CompareHistoryItem[] = JSON.parse(raw);
       console.log('[compare][load] items count:', items.length);
       if (items.length === 0) return;
-      setWeakTop3(computeWeakness(items));
+      const rawRegular = await AsyncStorage.getItem('history');
+      const regularItems: HistoryItem[] = rawRegular ? JSON.parse(rawRegular) : [];
+      setWeakTop3(computeWeakness(items, regularItems));
       const latest = items[items.length - 1];
       setLastSavedDate(latest.date);
       if (result === null) {
@@ -187,7 +171,9 @@ export default function CompareScreen() {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       setLastSavedDate(newItem.date);
       setSaveStatus('saved');
-      setWeakTop3(computeWeakness(updated));
+      const rawRegular = await AsyncStorage.getItem('history');
+      const regularItems: HistoryItem[] = rawRegular ? JSON.parse(rawRegular) : [];
+      setWeakTop3(computeWeakness(updated, regularItems));
       console.log('[compare][save] saved id:', newItem.id, 'score:', result.score, 'total items:', updated.length);
       // 改善案を promptTips に蓄積（次回分析に反映）
       if (improvements.length > 0) {

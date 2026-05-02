@@ -4,6 +4,8 @@ const Anthropic = require("@anthropic-ai/sdk");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
+const { pathToFileURL } = require("url");
+const pdfParse = require("pdf-parse");
 const { supabase } = require("./supabase");
 const { connectMongo, isMongoEnabled } = require("./mongodb");
 const Textbook = isMongoEnabled ? require("./models/Textbook") : null;
@@ -53,12 +55,17 @@ function saveTextbookCache() {
 
 loadTextbookCache();
 
-// ---- pdfjs cache ----
+// ---- pdfjs cache (extract-pdf-image 専用: canvas レンダリングが必要) ----
 let _pdfjsLib = null;
 async function getPdfjsLib() {
   if (!_pdfjsLib) {
     _pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-    _pdfjsLib.GlobalWorkerOptions.workerSrc = "";
+    // Node.js では file:// URL でワーカーを明示指定する必要がある
+    const workerFile = path.join(
+      path.dirname(require.resolve("pdfjs-dist/package.json")),
+      "legacy", "build", "pdf.worker.mjs"
+    );
+    _pdfjsLib.GlobalWorkerOptions.workerSrc = pathToFileURL(workerFile).href;
   }
   return _pdfjsLib;
 }
@@ -100,34 +107,29 @@ app.post("/textbook/register", (req, res, next) => {
     const { subject, bookName, description = "" } = req.body;
     if (!subject || !bookName) return res.status(400).json({ error: "subject・bookName は必須です。" });
 
-    const pdfjsLib = await getPdfjsLib();
-    let pdfDocument;
+    // pdf-parse を使用（Node.js 向け・worker 設定不要）
+    const pages = [];
+    let pageIdx = 0;
+    let parsedDoc;
     try {
-      pdfDocument = await pdfjsLib.getDocument({
-        data: new Uint8Array(req.file.buffer),
-        useWorkerFetch: false,
-        isEvalSupported: false,
-        useSystemFonts: true,
-      }).promise;
+      parsedDoc = await pdfParse(req.file.buffer, {
+        pagerender: async (pageData) => {
+          pageIdx++;
+          const num = pageIdx;
+          const textContent = await pageData.getTextContent();
+          const text = textContent.items
+            .filter(item => "str" in item)
+            .map(item => item.str)
+            .join(" ")
+            .trim();
+          if (text) pages.push({ pageNum: num, text });
+          return text;
+        },
+      });
     } catch (e) {
       return res.status(400).json({ error: `PDF解析失敗: ${e.message}`, code: "PARSE_ERROR" });
     }
-
-    const totalPages = pdfDocument.numPages;
-    // バッチ並列処理でページ抽出を高速化（10ページ単位）
-    const BATCH = 10;
-    const pages = [];
-    for (let start = 1; start <= totalPages; start += BATCH) {
-      const end = Math.min(start + BATCH - 1, totalPages);
-      const nums = Array.from({ length: end - start + 1 }, (_, i) => start + i);
-      const batch = await Promise.all(nums.map(async (i) => {
-        const page = await pdfDocument.getPage(i);
-        const textContent = await page.getTextContent();
-        const text = textContent.items.filter(item => "str" in item).map(item => item.str).join(" ").trim();
-        return text ? { pageNum: i, text } : null;
-      }));
-      batch.forEach(p => p && pages.push(p));
-    }
+    const totalPages = parsedDoc.numpages;
     console.log(`[textbook/register] parsed ${pages.length}/${totalPages} pages`);
 
     const bookId = `${subject}_${bookName}`;

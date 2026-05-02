@@ -54,6 +54,7 @@ type CompareHistoryItem = {
   id: string;
   date: string;
   result: GradeResult;
+  answerUri?: string;
 };
 
 const STORAGE_KEY = 'compare_history';
@@ -137,8 +138,9 @@ export default function CompareScreen() {
       setLastSavedDate(latest.date);
       if (result === null) {
         setResult(latest.result);
+        if (latest.answerUri) setAnswerUri(latest.answerUri);
         setSaveStatus('saved');
-        console.log('[compare][load] restored score:', latest.result.score, 'date:', latest.date);
+        console.log('[compare][load] restored score:', latest.result.score, 'answerUri:', latest.answerUri ?? 'none', 'date:', latest.date);
       }
     } catch (e: any) {
       console.log('[compare][load] ERROR:', e.message);
@@ -155,6 +157,7 @@ export default function CompareScreen() {
         id: Date.now().toString(),
         date: new Date().toLocaleString('ja-JP'),
         result,
+        answerUri: answerUri ?? undefined,
       };
       const updated = [...items, newItem].slice(-MAX_HISTORY);
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));

@@ -6,7 +6,8 @@ const fs = require("fs");
 const path = require("path");
 const { pathToFileURL } = require("url");
 const pdfParse = require("pdf-parse");
-const { supabase } = require("./supabase");
+const { supabase, vectorSearch } = require("./supabase");
+const OpenAI = require("openai");
 const { connectMongo, isMongoEnabled } = require("./mongodb");
 const Textbook = isMongoEnabled ? require("./models/Textbook") : null;
 const Chunk    = isMongoEnabled ? require("./models/Chunk")    : null;
@@ -78,6 +79,38 @@ const GENERAL_OCR_PROMPT = `この画像を最高精度でOCRしてください�
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const openaiClient = process.env.OPENAI_API_KEY
+  ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  : null;
+
+/**
+ * Claude で答案・模範解答から採点論点を抽出する
+ * @returns {Promise<string>} カンマ区切りの論点テキスト
+ */
+async function extractIssues(answerText, modelText, subject) {
+  const res = await client.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 200,
+    messages: [{
+      role: "user",
+      content: `公認会計士試験「${subject}」の採点に必要な論点を3つ以内で抽出してください。論点のみをカンマ区切りで出力してください。\n【答案要旨】${answerText.slice(0, 400)}\n【模範解答要旨】${modelText.slice(0, 400)}`,
+    }],
+  });
+  return res.content[0].text.trim();
+}
+
+/**
+ * OpenAI text-embedding-3-small でテキストをベクトル化する
+ * @returns {Promise<number[]>} 1536次元の埋め込みベクトル
+ */
+async function getEmbedding(text) {
+  if (!openaiClient) throw new Error("OPENAI_API_KEY未設定");
+  const res = await openaiClient.embeddings.create({
+    model: "text-embedding-3-small",
+    input: text.slice(0, 2000),
+  });
+  return res.data[0].embedding;
+}
 
 // ---- Textbook cache with Volume persistence ----
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -299,6 +332,34 @@ app.post("/textbook/register", (req, res, next) => {
       } catch (mongoErr) {
         console.error("[mongodb] textbook save error:", mongoErr.message);
       }
+    }
+
+    // Supabase topics に埋め込み付きで保存（OPENAI_API_KEY が設定されている場合のみ）
+    if (supabase && openaiClient) {
+      // 既存チャンクを削除してから再挿入
+      await supabase.from("topics").delete().eq("textbook_id", bookId);
+      let embeddedCount = 0;
+      for (const page of pages) {
+        const content = page.diagramDescription
+          ? `${page.text}\n【図解】${page.diagramDescription}`.trim()
+          : page.text;
+        if (!content) continue;
+        try {
+          const embedding = await getEmbedding(content.slice(0, 1000));
+          const { error: insErr } = await supabase.from("topics").insert({
+            subject,
+            content: content.slice(0, 2000),
+            embedding,
+            textbook_id: bookId,
+            page_num: page.pageNum,
+          });
+          if (insErr) console.warn(`[topics] insert p.${page.pageNum}:`, insErr.message);
+          else embeddedCount++;
+        } catch (e) {
+          console.warn(`[topics] embed p.${page.pageNum}:`, e.message);
+        }
+      }
+      console.log(`[topics] embedded ${embeddedCount}/${pages.length} pages for ${bookId}`);
     }
 
     res.json({ ok: true, bookId, totalPages, subject, bookName, diagramPageNums, pdfStorageUrl });
@@ -899,57 +960,86 @@ ${modelText}
       }
     }
 
-    // 教科書RAG — MongoDB Chunk 検索 → textbooks.json フォールバック
+    // 教科書RAG — pgvector セマンティック検索 → MongoDB regex → textbooks.json フォールバック
     if (result.feedbacks && result.feedbacks.length > 0) {
       try {
         let ragContext = "";
-        const stepTexts = [
-          result.feedbacks?.[0]?.point,
-          result.answerSteps?.issueRecognition,
-          result.answerSteps?.premise,
-          result.answerSteps?.logic,
-          result.answerSteps?.conclusion,
-          result.modelSteps?.issueRecognition,
-          result.modelSteps?.premise,
-          result.modelSteps?.logic,
-          result.modelSteps?.conclusion,
-        ].filter(Boolean).join(" ");
-        const keywords = [...new Set(
-          (stepTexts.match(/[一-龯ぁ-んァ-ヶーA-Za-z0-9]{2,20}/g) || [])
-            .map(k => k.trim())
-            .filter(k => !["不明", "なし", "自分", "模範", "答案", "解答"].includes(k))
-        )].slice(0, 8);
 
-        if (isMongoEnabled && Chunk) {
+        // ① 論点抽出 → 埋め込み → pgvector 上位5件
+        if (supabase && openaiClient) {
           try {
-            if (keywords.length > 0) {
-              const filter = { content: { $regex: keywords.map(escapeRegExp).join("|"), $options: "i" } };
-              if (subject) filter.subject = subject;
-              const chunks = await Chunk.find(filter).limit(5).lean();
-              console.log(`[rag] MongoDB hits=${chunks.length} subject=${subject || "all"} keywords=${keywords.join(",")}`);
-              if (chunks.length > 0) {
-                ragContext = chunks
-                  .map((c, i) => `[${i + 1}] ${c.textbookId || "教科書"} p.${c.pageNum}: ${c.content.slice(0, 500)}`)
-                  .join("\n");
-              }
+            const issuesText = await extractIssues(answerText, modelText, subject);
+            console.log(`[rag] extracted issues: ${issuesText}`);
+            const embedding = await getEmbedding(issuesText);
+            const hits = await vectorSearch(embedding, subject, 5);
+            if (hits.length > 0) {
+              ragContext = hits
+                .map((h, i) => `[${i + 1}] ${h.textbook_id || "教科書"} p.${h.page_num || "?"}: ${h.content.slice(0, 500)}`)
+                .join("\n");
+              console.log(`[rag] pgvector hits=${hits.length} subject=${subject || "all"}`);
             }
-          } catch (mongoErr) {
-            console.error("[rag] MongoDB search error, falling back to JSON:", mongoErr.message);
+          } catch (pgErr) {
+            console.warn("[rag] pgvector search failed, falling back to MongoDB:", pgErr.message);
           }
         }
 
-        // MongoDB チャンクなし → textbooks.json フォールバック
+        // ② pgvector 失敗 or 未設定 → MongoDB regex フォールバック
+        if (!ragContext) {
+          const stepTexts = [
+            result.feedbacks?.[0]?.point,
+            result.answerSteps?.issueRecognition,
+            result.answerSteps?.premise,
+            result.answerSteps?.logic,
+            result.answerSteps?.conclusion,
+            result.modelSteps?.issueRecognition,
+            result.modelSteps?.premise,
+            result.modelSteps?.logic,
+            result.modelSteps?.conclusion,
+          ].filter(Boolean).join(" ");
+          const keywords = [...new Set(
+            (stepTexts.match(/[一-龯ぁ-んァ-ヶーA-Za-z0-9]{2,20}/g) || [])
+              .map(k => k.trim())
+              .filter(k => !["不明", "なし", "自分", "模範", "答案", "解答"].includes(k))
+          )].slice(0, 8);
+
+          if (isMongoEnabled && Chunk) {
+            try {
+              if (keywords.length > 0) {
+                const filter = { content: { $regex: keywords.map(escapeRegExp).join("|"), $options: "i" } };
+                if (subject) filter.subject = subject;
+                const chunks = await Chunk.find(filter).limit(5).lean();
+                console.log(`[rag] MongoDB hits=${chunks.length} subject=${subject || "all"} keywords=${keywords.join(",")}`);
+                if (chunks.length > 0) {
+                  ragContext = chunks
+                    .map((c, i) => `[${i + 1}] ${c.textbookId || "教科書"} p.${c.pageNum}: ${c.content.slice(0, 500)}`)
+                    .join("\n");
+                }
+              }
+            } catch (mongoErr) {
+              console.error("[rag] MongoDB search error, falling back to JSON:", mongoErr.message);
+            }
+          }
+        }
+
+        // ③ MongoDB チャンクなし → textbooks.json フォールバック
         if (!ragContext) {
           const fallbackEntries = [...textbookCache.entries()]
             .filter(([, book]) => !subject || book.subject === subject);
           const pageContent = (page) => page.diagramDescription
             ? `${page.text}\n【図解】${page.diagramDescription}`.trim()
             : page.text;
+          const stepTexts2 = [
+            result.feedbacks?.[0]?.point,
+            result.answerSteps?.issueRecognition,
+          ].filter(Boolean).join(" ");
+          const kw2 = [...new Set(
+            (stepTexts2.match(/[一-龯ぁ-んァ-ヶーA-Za-z0-9]{2,20}/g) || []).slice(0, 8)
+          )];
           let fallbackPages = [];
           for (const [bookId, book] of fallbackEntries) {
             for (const page of book.pages || []) {
               const combined = pageContent(page);
-              if (keywords.length === 0 || keywords.some(k => combined.includes(k))) {
+              if (kw2.length === 0 || kw2.some(k => combined.includes(k))) {
                 fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: combined });
               }
               if (fallbackPages.length >= 5) break;
@@ -1095,3 +1185,5 @@ if (require.main === module) {
   });
 }
 module.exports = app;
+module.exports.extractIssues = extractIssues;
+module.exports.getEmbedding  = getEmbedding;

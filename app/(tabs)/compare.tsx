@@ -3,6 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { DAILY_LIMIT, checkAndIncrement, getUsageCount, isDevDevice } from '@/utils/usageLimit';
+import { isCloseEnough, jaccardSim } from '@/utils/jaccardSim';
 import {
   ActivityIndicator,
   Alert,
@@ -25,17 +26,6 @@ const TYPE_COLOR: Record<string, string> = {
   '論点誤認': '#FF3B30', '思考プロセスミス': '#FF9500', '計算ミス': '#FF6B00', '前提不足': '#007AFF',
 };
 
-// 日本語対応のJaccard類似度（1文字単位で分割）
-function jaccardSim(a: string, b: string): number {
-  if (!a && !b) return 1;
-  if (!a || !b) return 0;
-  const setA = new Set(a.replace(/\s+/g, '').split(''));
-  const setB = new Set(b.replace(/\s+/g, '').split(''));
-  let intersection = 0;
-  setA.forEach((c) => { if (setB.has(c)) intersection++; });
-  const union = setA.size + setB.size - intersection;
-  return union > 0 ? intersection / union : 0;
-}
 const TYPE_ICON: Record<string, string> = {
   '論点誤認': '🔴', '思考プロセスミス': '🟡', '計算ミス': '🟠', '前提不足': '🔵',
 };
@@ -525,8 +515,7 @@ export default function CompareScreen() {
               const answerText = result.answerSteps[key] || '';
               const modelText = result.modelSteps[key] || '';
               const sim = jaccardSim(answerText, modelText);
-              const threshold = answerText.length <= 10 ? 0.15 : 0.25;
-              const isClose = sim >= threshold;
+              const isClose = isCloseEnough(answerText, sim);
               console.log(`[compare][diff] ${key} sim=${sim.toFixed(2)} isClose=${isClose}`);
               return (
                 <View key={key} style={styles.diffCard}>

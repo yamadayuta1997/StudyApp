@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 開発者バイパス: true にすると制限なし
-export const IS_DEV = true;
+export const IS_DEV = false;
 
 export const DAILY_LIMIT = 3;
 const LIMIT_KEY = 'usage_limit';

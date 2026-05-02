@@ -155,8 +155,10 @@ export default function CompareScreen() {
     }
   };
 
-  const saveResult = async () => {
-    if (!result) return;
+  const saveResult = async (r?: GradeResult, impsArg?: string[]) => {
+    const gradeResult = r ?? result;
+    const improvementsToSave = impsArg ?? improvements;
+    if (!gradeResult) return;
     setSaveStatus('saving');
     try {
       const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -164,7 +166,7 @@ export default function CompareScreen() {
       const newItem: CompareHistoryItem = {
         id: Date.now().toString(),
         date: new Date().toLocaleString('ja-JP'),
-        result,
+        result: gradeResult,
         answerUri: answerUri ?? undefined,
       };
       const updated = [...items, newItem].slice(-MAX_HISTORY);
@@ -174,10 +176,10 @@ export default function CompareScreen() {
       const rawRegular = await AsyncStorage.getItem('history');
       const regularItems: HistoryItem[] = rawRegular ? JSON.parse(rawRegular) : [];
       setWeakTop3(computeWeakness(updated, regularItems));
-      console.log('[compare][save] saved id:', newItem.id, 'score:', result.score, 'total items:', updated.length);
+      console.log('[compare][save] saved id:', newItem.id, 'score:', gradeResult.score, 'total items:', updated.length);
       // 改善案を promptTips に蓄積（次回分析に反映）
-      if (improvements.length > 0) {
-        const newTips = [...promptTips, ...improvements].slice(-10);
+      if (improvementsToSave.length > 0) {
+        const newTips = [...promptTips, ...improvementsToSave].slice(-10);
         await AsyncStorage.setItem('compare_prompt_tips', JSON.stringify(newTips));
         setPromptTips(newTips);
         console.log('[compare][save] promptTips updated:', newTips.length);
@@ -272,7 +274,7 @@ export default function CompareScreen() {
       setResult(safe);
       setEvalScore(es);
       setImprovements(imps);
-      setSaveStatus('idle');
+      await saveResult(safe, imps);
     } catch (e: any) {
       console.log('[compare][analyze] ERROR:', e.message);
       Alert.alert('エラー', e.message);

@@ -5,6 +5,9 @@ const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
 const { supabase } = require("./supabase");
+const { connectMongo, isMongoEnabled } = require("./mongodb");
+const Textbook = isMongoEnabled ? require("./models/Textbook") : null;
+const Chunk    = isMongoEnabled ? require("./models/Chunk")    : null;
 
 const app = express();
 app.use(cors());
@@ -112,6 +115,29 @@ app.post("/textbook/register", upload.single("pdf"), async (req, res) => {
     textbookCache.set(bookId, { subject, bookName, description, pages, registeredAt: new Date().toISOString() });
     saveTextbookCache();
 
+    // MongoDB 並行保存（失敗してもJSONキャッシュは保存済みなので続行）
+    if (isMongoEnabled && Textbook && Chunk) {
+      try {
+        await Textbook.findOneAndUpdate(
+          { textbookId: bookId },
+          { textbookId: bookId, title: bookName, subject, pages, totalPages, createdAt: new Date() },
+          { upsert: true, new: true }
+        );
+        const chunkDocs = pages.map(p => ({
+          textbookId: bookId,
+          subject,
+          content: p.text,
+          pageNum: p.pageNum,
+          embedding: [],
+        }));
+        await Chunk.deleteMany({ textbookId: bookId });
+        if (chunkDocs.length > 0) await Chunk.insertMany(chunkDocs);
+        console.log(`[mongodb] textbook saved: ${bookId}, chunks: ${chunkDocs.length}`);
+      } catch (mongoErr) {
+        console.error("[mongodb] textbook save error:", mongoErr.message);
+      }
+    }
+
     res.json({ ok: true, bookId, totalPages, subject, bookName });
   } catch (e) {
     console.error("/textbook/register error:", e.message);
@@ -145,11 +171,37 @@ app.delete("/textbook/:bookId", (req, res) => {
 });
 
 // ---- Textbook: Search ----
-app.post("/textbook/search", (req, res) => {
+app.post("/textbook/search", async (req, res) => {
   try {
     const { query, subject } = req.body;
     if (!query) return res.status(400).json({ error: "query は必須です。" });
 
+    // MongoDB 優先、未接続時は textbooks.json にフォールバック
+    if (isMongoEnabled && Chunk) {
+      try {
+        const filter = { content: { $regex: query, $options: "i" } };
+        if (subject) filter.subject = subject;
+        const chunks = await Chunk.find(filter).limit(10).lean();
+        const results = chunks.map(c => ({
+          bookId:   c.textbookId,
+          bookName: c.textbookId.replace(/^[^_]+_/, ""),
+          subject:  c.subject,
+          pageNum:  c.pageNum,
+          excerpt:  (() => {
+            const idx = c.content.toLowerCase().indexOf(query.toLowerCase());
+            const start = Math.max(0, idx - 100);
+            const end   = Math.min(c.content.length, idx + query.length + 100);
+            return c.content.slice(start, end);
+          })(),
+        }));
+        console.log(`[mongodb] search "${query}" → ${results.length} hits`);
+        return res.json({ results, source: "mongodb" });
+      } catch (mongoErr) {
+        console.error("[mongodb] search error, falling back to JSON:", mongoErr.message);
+      }
+    }
+
+    // JSON キャッシュ フォールバック
     const results = [];
     for (const [bookId, book] of textbookCache.entries()) {
       if (subject && book.subject !== subject) continue;
@@ -161,16 +213,16 @@ app.post("/textbook/search", (req, res) => {
           results.push({
             bookId,
             bookName: book.bookName,
-            subject: book.subject,
-            pageNum: page.pageNum,
-            excerpt: page.text.slice(start, end),
+            subject:  book.subject,
+            pageNum:  page.pageNum,
+            excerpt:  page.text.slice(start, end),
           });
           if (results.length >= 10) break;
         }
       }
       if (results.length >= 10) break;
     }
-    res.json({ results });
+    res.json({ results, source: "json" });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -727,6 +779,9 @@ function detectMediaType(base64) {
 }
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, "0.0.0.0", () => {
+app.listen(PORT, "0.0.0.0", async () => {
   console.log(`サーバー起動中: http://0.0.0.0:${PORT} (PORT env=${process.env.PORT})`);
+  if (isMongoEnabled) {
+    await connectMongo();
+  }
 });

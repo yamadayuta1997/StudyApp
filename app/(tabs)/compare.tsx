@@ -117,6 +117,30 @@ export default function CompareScreen() {
     }
   };
 
+  const resetPromptTips = () => {
+    Alert.alert(
+      'AIヒントをリセット',
+      `蓄積された改善ヒント（${promptTips.length}件）を削除しますか？\n次回の分析から反映されなくなります。`,
+      [
+        { text: 'キャンセル', style: 'cancel' },
+        {
+          text: 'リセット',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AsyncStorage.removeItem('compare_prompt_tips');
+              setPromptTips([]);
+              console.log('[compare][promptTips] reset');
+            } catch (e: any) {
+              console.log('[compare][promptTips] reset error:', e.message);
+              Alert.alert('エラー', 'リセットに失敗しました');
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const refreshUsage = async () => {
     const dev = await isDevDevice();
     setIsDev(dev);
@@ -425,6 +449,16 @@ export default function CompareScreen() {
                 </View>
               </View>
             ))}
+          </View>
+        )}
+
+        {/* AIヒント蓄積状態 */}
+        {promptTips.length > 0 && (
+          <View style={styles.promptTipsRow}>
+            <Text style={styles.promptTipsText}>🤖 AI改善ヒント: {promptTips.length}件蓄積中</Text>
+            <TouchableOpacity style={styles.promptTipsResetBtn} onPress={resetPromptTips}>
+              <Text style={styles.promptTipsResetText}>🗑 リセット</Text>
+            </TouchableOpacity>
           </View>
         )}
 
@@ -830,6 +864,29 @@ const styles = StyleSheet.create({
   saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   saveSub: { textAlign: 'center', fontSize: 12, color: '#6B7280', marginTop: 6 },
   savedDateText: { textAlign: 'center', fontSize: 12, color: '#8E8E93', marginTop: 6 },
+
+  /* AIヒント蓄積状態行 */
+  promptTipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F0FDF4',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+  },
+  promptTipsText: { fontSize: 13, color: '#166534', fontWeight: '600', flex: 1 },
+  promptTipsResetBtn: {
+    backgroundColor: '#DC2626',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginLeft: 8,
+  },
+  promptTipsResetText: { fontSize: 12, color: '#fff', fontWeight: '700' },
 
   /* 赤ペンオーバーレイ FAB */
   fab: {

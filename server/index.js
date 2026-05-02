@@ -55,6 +55,10 @@ function saveTextbookCache() {
 
 loadTextbookCache();
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 // ---- pdfjs cache (extract-pdf-image 専用: canvas レンダリングが必要) ----
 let _pdfjsLib = null;
 async function getPdfjsLib() {
@@ -756,25 +760,89 @@ ${modelText}
       }
     }
 
-    // 教科書RAG（既存textbookCacheを利用）
+    // 教科書RAG — MongoDB Chunk 検索 → textbooks.json フォールバック
     if (result.feedbacks && result.feedbacks.length > 0) {
-      const topIssue = result.feedbacks[0].point;
       try {
-        if (fs.existsSync(TEXTBOOKS_FILE)) {
-          const textbooks = JSON.parse(fs.readFileSync(TEXTBOOKS_FILE, "utf8"));
-          if (textbooks.length > 0) {
-            const ragRes = await client.messages.create({
-              model: "claude-opus-4-5",
-              max_tokens: 300,
-              messages: [{
-                role: "user",
-                content: `以下の指摘に関連する教科書の記述を30字以内で引用してください。なければ空文字で返してください。
-指摘: ${topIssue}
-教科書テキスト（先頭3000字）: ${textbooks[0][1]?.text?.slice(0, 3000) || ""}`
-              }]
-            });
-            result.textbookRef = ragRes.content[0].text.trim();
+        let ragContext = "";
+        const stepTexts = [
+          result.feedbacks?.[0]?.point,
+          result.answerSteps?.issueRecognition,
+          result.answerSteps?.premise,
+          result.answerSteps?.logic,
+          result.answerSteps?.conclusion,
+          result.modelSteps?.issueRecognition,
+          result.modelSteps?.premise,
+          result.modelSteps?.logic,
+          result.modelSteps?.conclusion,
+        ].filter(Boolean).join(" ");
+        const keywords = [...new Set(
+          (stepTexts.match(/[一-龯ぁ-んァ-ヶーA-Za-z0-9]{2,20}/g) || [])
+            .map(k => k.trim())
+            .filter(k => !["不明", "なし", "自分", "模範", "答案", "解答"].includes(k))
+        )].slice(0, 8);
+
+        if (isMongoEnabled && Chunk) {
+          try {
+            if (keywords.length > 0) {
+              const filter = { content: { $regex: keywords.map(escapeRegExp).join("|"), $options: "i" } };
+              if (subject) filter.subject = subject;
+              const chunks = await Chunk.find(filter).limit(5).lean();
+              console.log(`[rag] MongoDB hits=${chunks.length} subject=${subject || "all"} keywords=${keywords.join(",")}`);
+              if (chunks.length > 0) {
+                ragContext = chunks
+                  .map((c, i) => `[${i + 1}] ${c.textbookId || "教科書"} p.${c.pageNum}: ${c.content.slice(0, 500)}`)
+                  .join("\n");
+              }
+            }
+          } catch (mongoErr) {
+            console.error("[rag] MongoDB search error, falling back to JSON:", mongoErr.message);
           }
+        }
+
+        // MongoDB チャンクなし → textbooks.json フォールバック
+        if (!ragContext) {
+          const fallbackEntries = [...textbookCache.entries()]
+            .filter(([, book]) => !subject || book.subject === subject);
+          let fallbackPages = [];
+          for (const [bookId, book] of fallbackEntries) {
+            for (const page of book.pages || []) {
+              if (keywords.length === 0 || keywords.some(k => page.text.includes(k))) {
+                fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: page.text });
+              }
+              if (fallbackPages.length >= 5) break;
+            }
+            if (fallbackPages.length >= 5) break;
+          }
+          if (fallbackPages.length === 0) {
+            for (const [bookId, book] of fallbackEntries) {
+              for (const page of book.pages || []) {
+                fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: page.text });
+                if (fallbackPages.length >= 5) break;
+              }
+              if (fallbackPages.length >= 5) break;
+            }
+          }
+          if (fallbackPages.length > 0) {
+            ragContext = fallbackPages
+              .map((p, i) => `[${i + 1}] ${p.bookName || p.bookId} p.${p.pageNum}: ${p.text.slice(0, 500)}`)
+              .join("\n");
+            console.log(`[rag] JSON fallback hits=${fallbackPages.length} subject=${subject || "all"}`);
+          }
+        }
+
+        if (ragContext) {
+          const ragRes = await client.messages.create({
+            model: "claude-opus-4-5",
+            max_tokens: 400,
+            messages: [{
+              role: "user",
+              content: `以下の教科書記述を参考に添削してください。指摘内容に関連する記述を100字以内で引用してください。なければ空文字で返してください。
+指摘: ${result.feedbacks[0].point}
+教科書記述:
+${ragContext}`,
+            }],
+          });
+          result.textbookRef = ragRes.content[0].text.trim();
         }
       } catch (_) {
         // RAG失敗はスルー

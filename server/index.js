@@ -494,7 +494,7 @@ app.post("/grade-compare", async (req, res) => {
     // 答案OCR
     const answerOcrRes = await client.messages.create({
       model: "claude-opus-4-5",
-      max_tokens: 1000,
+      max_tokens: 2048,
       messages: [{
         role: "user",
         content: [
@@ -510,7 +510,7 @@ app.post("/grade-compare", async (req, res) => {
     if (!modelText && modelAnswerImage) {
       const modelOcrRes = await client.messages.create({
         model: "claude-opus-4-5",
-        max_tokens: 1000,
+        max_tokens: 2048,
         messages: [{
           role: "user",
           content: [
@@ -590,7 +590,7 @@ app.post("/grade-compare", async (req, res) => {
       try {
         analysisRes = await client.messages.create({
           model: "claude-opus-4-5",
-          max_tokens: 2000,
+          max_tokens: 4096,
           tools: [GRADE_TOOL],
           tool_choice: { type: "tool", name: "grade_answer" },
           messages: [{
@@ -618,6 +618,13 @@ ${modelText}
         continue;
       }
 
+      // stop_reason が max_tokens の場合は入力が途中で打ち切られている
+      if (analysisRes.stop_reason === "max_tokens") {
+        console.error(`[grade-compare] attempt ${attempt + 1} TRUNCATED (stop_reason=max_tokens)`);
+        if (attempt === MAX_RETRIES) return res.status(500).json({ error: "採点レスポンスが長すぎて取得できませんでした。再度お試しください。" });
+        continue;
+      }
+
       const toolBlock = analysisRes.content.find((b) => b.type === "tool_use" && b.name === "grade_answer");
       if (!toolBlock) {
         console.error(`[grade-compare] attempt ${attempt + 1} tool_use block not found`);
@@ -626,6 +633,14 @@ ${modelText}
       }
 
       result = toolBlock.input;
+
+      // score が数値でない場合は truncation による空オブジェクトと判断してリトライ
+      if (typeof result.score !== "number") {
+        console.error(`[grade-compare] attempt ${attempt + 1} score missing — likely truncated input:`, JSON.stringify(result).slice(0, 200));
+        if (attempt === MAX_RETRIES) return res.status(500).json({ error: "採点結果の取得に失敗しました。再度お試しください。" });
+        continue;
+      }
+
       if (!Array.isArray(result.feedbacks) || result.feedbacks.length === 0) {
         result.feedbacks = [{ priority: 1, type: "前提不足", point: "解析結果から具体的なフィードバックを抽出できませんでした。再度試行してください。", color: "yellow" }];
       }

@@ -58,6 +58,9 @@ export default function AnswerScreen() {
   // Answer images
   const [answerImages, setAnswerImages] = useState<{ uri: string; base64: string }[]>([]);
 
+  // Subject selection modal
+  const [subjectModalVisible, setSubjectModalVisible] = useState(false);
+
   // Ref page modal
   const [refPageModalText, setRefPageModalText] = useState("");
   const [refPageModalTitle, setRefPageModalTitle] = useState("");
@@ -464,7 +467,7 @@ export default function AnswerScreen() {
           </>
         )}
 
-        <TouchableOpacity style={[styles.button, !isReady && styles.buttonDisabled]} onPress={handleSubmit} disabled={!isReady || loading}>
+        <TouchableOpacity style={[styles.button, !isReady && styles.buttonDisabled]} onPress={() => setSubjectModalVisible(true)} disabled={!isReady || loading}>
           {loading ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.buttonText}>🎯 採点する</Text>}
         </TouchableOpacity>
 
@@ -552,6 +555,30 @@ export default function AnswerScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* 科目選択モーダル */}
+      <Modal visible={subjectModalVisible} animationType="slide" transparent onRequestClose={() => setSubjectModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.subjectModal}>
+            <Text style={styles.subjectModalTitle}>📌 採点する科目を選択</Text>
+            <View style={styles.subjectGrid}>
+              {SUBJECTS.map(s => (
+                <TouchableOpacity key={s} style={[styles.subjectButton, subject === s && styles.subjectButtonActive]} onPress={() => setSubject(s)}>
+                  <Text style={[styles.subjectText, subject === s && styles.subjectTextActive]}>{s}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.subjectModalActions}>
+              <TouchableOpacity style={styles.subjectModalCancel} onPress={() => setSubjectModalVisible(false)}>
+                <Text style={styles.subjectModalCancelText}>キャンセル</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.subjectModalConfirm} onPress={() => { setSubjectModalVisible(false); handleSubmit(); }}>
+                <Text style={styles.subjectModalConfirmText}>この科目で採点</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* 参考ページモーダル */}
       <Modal visible={refPageModalText !== ""} animationType="fade" transparent onRequestClose={() => setRefPageModalText("")}>
@@ -670,6 +697,13 @@ const styles = StyleSheet.create({
   refModalText: { fontSize: 14, color: "#334155", lineHeight: 22 },
   refModalClose: { backgroundColor: "#2563eb", borderRadius: 10, padding: 12, alignItems: "center" },
   refModalCloseText: { color: "#fff", fontWeight: "bold", fontSize: 15 },
+  subjectModal: { backgroundColor: "#fff", borderRadius: 20, padding: 24, width: "100%" },
+  subjectModalTitle: { fontSize: 17, fontWeight: "bold", color: "#1e40af", marginBottom: 16, textAlign: "center" },
+  subjectModalActions: { flexDirection: "row", gap: 10, marginTop: 20 },
+  subjectModalCancel: { flex: 1, backgroundColor: "#f1f5f9", borderRadius: 12, padding: 14, alignItems: "center" },
+  subjectModalCancelText: { color: "#64748b", fontSize: 15, fontWeight: "600" },
+  subjectModalConfirm: { flex: 2, backgroundColor: "#2563eb", borderRadius: 12, padding: 14, alignItems: "center" },
+  subjectModalConfirmText: { color: "#fff", fontSize: 15, fontWeight: "bold" },
 });
 
 const markdownStyles = {

@@ -30,6 +30,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const SERVER = 'https://studyapp-production-66d5.up.railway.app';
 
+const SUBJECTS = ['財務会計論', '管理会計論', '監査論', '企業法', '租税法', '経営学'];
+
 const COLOR_MAP: Record<string, string> = { red: '#FF3B30', yellow: '#FF9500', green: '#34C759' };
 const TYPE_COLOR: Record<string, string> = {
   '論点誤認': '#FF3B30', '思考プロセスミス': '#FF9500', '計算ミス': '#FF6B00', '前提不足': '#007AFF',
@@ -55,6 +57,7 @@ type GradeResult = {
 type CompareHistoryItem = {
   id: string;
   date: string;
+  subject: string;
   result: GradeResult;
   answerUri?: string;
 };
@@ -81,6 +84,8 @@ export default function CompareScreen() {
   const [improvements, setImprovements] = useState<string[]>([]);
   const [promptTips, setPromptTips] = useState<string[]>([]);
   const [showOverlay, setShowOverlay] = useState(true);
+  const [subject, setSubject] = useState('財務会計論');
+  const [subjectModalVisible, setSubjectModalVisible] = useState(false);
 
   useFocusEffect(useCallback(() => {
     loadLastSaved();
@@ -166,6 +171,7 @@ export default function CompareScreen() {
       const newItem: CompareHistoryItem = {
         id: Date.now().toString(),
         date: new Date().toLocaleString('ja-JP'),
+        subject,
         result: gradeResult,
         answerUri: answerUri ?? undefined,
       };
@@ -499,7 +505,7 @@ export default function CompareScreen() {
         ) : (
           <TouchableOpacity
             style={[styles.analyzeBtn, (!answerB64 || !modelB64 || loading) && styles.analyzeBtnDim]}
-            onPress={analyze}
+            onPress={() => setSubjectModalVisible(true)}
             disabled={!answerB64 || !modelB64 || loading}
           >
             {loading ? (
@@ -609,7 +615,7 @@ export default function CompareScreen() {
             {/* 保存ボタン（プライマリ CTA） */}
             <TouchableOpacity
               style={[styles.saveBtn, saveStatus === 'saved' && styles.saveBtnDone]}
-              onPress={saveResult}
+              onPress={() => saveResult()}
               disabled={saveStatus !== 'idle'}
             >
               {saveStatus === 'saving' ? (
@@ -637,6 +643,37 @@ export default function CompareScreen() {
           </Text>
         </TouchableOpacity>
       )}
+
+      {/* 科目選択モーダル */}
+      <Modal visible={subjectModalVisible} animationType="slide" transparent onRequestClose={() => setSubjectModalVisible(false)}>
+        <View style={styles.subjectModalOverlay}>
+          <View style={styles.subjectModalCard}>
+            <Text style={styles.subjectModalTitle}>📌 科目を選択してください</Text>
+            <View style={styles.subjectGrid}>
+              {SUBJECTS.map(s => (
+                <TouchableOpacity
+                  key={s}
+                  style={[styles.subjectBtn, subject === s && styles.subjectBtnActive]}
+                  onPress={() => setSubject(s)}
+                >
+                  <Text style={[styles.subjectBtnText, subject === s && styles.subjectBtnTextActive]}>{s}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <View style={styles.subjectModalActions}>
+              <TouchableOpacity style={styles.subjectCancelBtn} onPress={() => setSubjectModalVisible(false)}>
+                <Text style={styles.subjectCancelText}>キャンセル</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.subjectConfirmBtn}
+                onPress={() => { setSubjectModalVisible(false); analyze(); }}
+              >
+                <Text style={styles.subjectConfirmText}>この科目で分析</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -896,4 +933,19 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+
+  /* 科目選択モーダル */
+  subjectModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', padding: 16 },
+  subjectModalCard: { backgroundColor: '#fff', borderRadius: 20, padding: 24 },
+  subjectModalTitle: { fontSize: 17, fontWeight: 'bold', color: '#1C1C1E', marginBottom: 16, textAlign: 'center' },
+  subjectGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
+  subjectBtn: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderColor: '#D1D5DB', backgroundColor: '#F9FAFB' },
+  subjectBtnActive: { backgroundColor: '#007AFF', borderColor: '#007AFF' },
+  subjectBtnText: { color: '#6B7280', fontSize: 13, fontWeight: '600' },
+  subjectBtnTextActive: { color: '#fff' },
+  subjectModalActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  subjectCancelBtn: { flex: 1, backgroundColor: '#F2F2F7', borderRadius: 12, padding: 14, alignItems: 'center' },
+  subjectCancelText: { color: '#6B7280', fontSize: 15, fontWeight: '600' },
+  subjectConfirmBtn: { flex: 2, backgroundColor: '#007AFF', borderRadius: 12, padding: 14, alignItems: 'center' },
+  subjectConfirmText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
 });

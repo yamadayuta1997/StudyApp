@@ -107,8 +107,15 @@ export default function TextbookScreen() {
     formData.append("bookName", regBookName.trim());
     formData.append("description", regDescription.trim());
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s
     try {
-      const res = await fetch(`${API_BASE_URL}/textbook/register`, { method: "POST", body: formData });
+      const res = await fetch(`${API_BASE_URL}/textbook/register`, {
+        method: "POST",
+        body: formData,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       Alert.alert("登録完了", `「${data.bookName}」を登録しました（${data.totalPages}ページ）`);
@@ -117,7 +124,12 @@ export default function TextbookScreen() {
       setRegDescription("");
       await loadBooks();
     } catch (e: any) {
-      setRegError("登録に失敗しました: " + e.message);
+      clearTimeout(timeoutId);
+      if (e.name === "AbortError") {
+        setRegError("登録がタイムアウトしました（120秒）。PDFのページ数を減らしてお試しください。");
+      } else {
+        setRegError("登録に失敗しました: " + e.message);
+      }
     } finally {
       setRegLoading(false);
     }

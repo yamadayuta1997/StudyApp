@@ -13,7 +13,7 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 // ---- Textbook cache with Volume persistence ----
@@ -88,7 +88,7 @@ app.post("/textbook/register", (req, res, next) => {
   upload.single("pdf")(req, res, (err) => {
     if (err) {
       if (err.code === "LIMIT_FILE_SIZE") {
-        return res.status(413).json({ error: "PDFファイルが大きすぎます（最大20MB）。", code: "LIMIT_FILE_SIZE" });
+        return res.status(413).json({ error: "PDFファイルが大きすぎます（最大50MB）。", code: "LIMIT_FILE_SIZE" });
       }
       return res.status(400).json({ error: `アップロードエラー: ${err.message}`, code: err.code || "UPLOAD_ERROR" });
     }
@@ -114,13 +114,21 @@ app.post("/textbook/register", (req, res, next) => {
     }
 
     const totalPages = pdfDocument.numPages;
+    // バッチ並列処理でページ抽出を高速化（10ページ単位）
+    const BATCH = 10;
     const pages = [];
-    for (let i = 1; i <= totalPages; i++) {
-      const page = await pdfDocument.getPage(i);
-      const textContent = await page.getTextContent();
-      const text = textContent.items.filter(item => "str" in item).map(item => item.str).join(" ").trim();
-      if (text) pages.push({ pageNum: i, text });
+    for (let start = 1; start <= totalPages; start += BATCH) {
+      const end = Math.min(start + BATCH - 1, totalPages);
+      const nums = Array.from({ length: end - start + 1 }, (_, i) => start + i);
+      const batch = await Promise.all(nums.map(async (i) => {
+        const page = await pdfDocument.getPage(i);
+        const textContent = await page.getTextContent();
+        const text = textContent.items.filter(item => "str" in item).map(item => item.str).join(" ").trim();
+        return text ? { pageNum: i, text } : null;
+      }));
+      batch.forEach(p => p && pages.push(p));
     }
+    console.log(`[textbook/register] parsed ${pages.length}/${totalPages} pages`);
 
     const bookId = `${subject}_${bookName}`;
     textbookCache.set(bookId, { subject, bookName, description, pages, registeredAt: new Date().toISOString() });
@@ -785,7 +793,7 @@ app.use((err, req, res, next) => {
   console.error("[global-error]", err.message, err.stack?.split("\n")[1] || "");
   const status = err.status || err.statusCode || 500;
   if (err.code === "LIMIT_FILE_SIZE") {
-    return res.status(413).json({ error: "PDFファイルが大きすぎます（最大20MB）。", code: "LIMIT_FILE_SIZE" });
+    return res.status(413).json({ error: "PDFファイルが大きすぎます（最大50MB）。", code: "LIMIT_FILE_SIZE" });
   }
   res.status(status).json({ error: err.message || "Internal server error" });
 });

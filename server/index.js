@@ -15,6 +15,67 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
 
+// ---- OCR プロンプト定数（手書き答案の認識精度向上） ----
+const HANDWRITING_OCR_PROMPT = `あなたは手書き文字認識の専門家です。以下の手書き答案画像を最高精度でテキスト化してください。
+
+【手書き特有の読み取り指示】
+・崩し字・略字・連続文字もできる限り正確に読み取る
+・数字の 0/6/8 や、かな・漢字の混在に注意して識別する
+・「、」「。」などの句読点、カッコ類も見落とさない
+
+【記号・数式の処理】
+・会計・税務記号（¥, %, ×, ÷, ≦, ≧, ∑, →, ⇒）はそのまま転写
+・分数は「分子/分母」形式、累乗は「底^指数」形式で転写
+・アンダーライン・二重線は重要箇所として【重要】タグで囲む
+
+【表・図の処理】
+・表は｜で列を区切り、行ごとに改行して構造を保持する
+・T字勘定（借方・貸方）は左右の構造をそのまま再現する
+・図・グラフが含まれる場合は【図説明】セクションとして言語化する
+
+【不確実な箇所の扱い】
+・読み取れない文字・単語は【不明】と記載する
+・推測で補った箇所は（推測：xxx）と明記する
+
+余分な説明・コメントは一切不要です。転写結果のみを出力してください。`;
+
+const MODEL_ANSWER_OCR_PROMPT = `あなたは手書き文字認識の専門家です。以下の手書き模範解答画像を最高精度でテキスト化してください。
+
+【手書き特有の読み取り指示】
+・崩し字・略字・連続文字もできる限り正確に読み取る
+・数字の 0/6/8 や、かな・漢字の混在に注意して識別する
+・「、」「。」などの句読点、カッコ類も見落とさない
+
+【模範解答特有の処理】
+・採点基準となる重要キーワードを正確に転写する
+・会計処理の仕訳・勘定科目名は略称ではなく正式名称で転写する
+・金額・数値は桁区切りも含めて正確に転写する（例: 1,000,000）
+・箇条書き・番号付きリストは番号・記号をそのまま保持する
+
+【記号・数式の処理】
+・会計・税務記号（¥, %, ×, ÷, ≦, ≧, ∑, →, ⇒）はそのまま転写
+・分数は「分子/分母」形式、累乗は「底^指数」形式で転写
+
+【表・図の処理】
+・表は｜で列を区切り、行ごとに改行して構造を保持する
+・T字勘定（借方・貸方）は左右の構造をそのまま再現する
+・図・グラフが含まれる場合は【図説明】セクションとして言語化する
+
+【不確実な箇所の扱い】
+・読み取れない文字・単語は【不明】と記載する
+・推測で補った箇所は（推測：xxx）と明記する
+
+余分な説明・コメントは一切不要です。転写結果のみを出力してください。`;
+
+const GENERAL_OCR_PROMPT = `この画像を最高精度でOCRしてください。
+・手書き文字・印刷文字・数式・記号・表・図のキャプションをすべて転写
+・数式はそのままの形で転写（例: ∑, ≦, →, ÷）
+・表は｜で区切って構造を保持
+・図・グラフが含まれる場合は【図説明】として内容を言語化
+・ページ番号・ヘッダー・フッターも含める
+・不鮮明な箇所は【不明】と記載
+余分な説明は不要です。転写結果のみ出力してください。`;
+
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -501,7 +562,7 @@ app.post("/extract-pdf-image", upload.single("pdf"), async (req, res) => {
         role: "user",
         content: [
           { type: "image", source: { type: "base64", media_type: detectMediaType(imageBase64), data: imageBase64 } },
-          { type: "text", text: "この画像を最高精度でOCRしてください。手書き・印刷・数式・表・図説明をすべて転写。余分な説明は不要です。" },
+          { type: "text", text: GENERAL_OCR_PROMPT },
         ],
       }],
     });
@@ -529,10 +590,7 @@ app.post("/extract-image", upload.single("image"), async (req, res) => {
         role: "user",
         content: [
           { type: "image", source: { type: "base64", media_type: detectMediaType(imageBase64), data: imageBase64 } },
-          {
-            type: "text",
-            text: "この画像を最高精度でOCRしてください。\n・手書き文字・印刷文字・数式・記号・表・図のキャプションをすべて転写\n・数式はそのままの形で転写（例: ∑, ≦, →, ÷）\n・表は｜で区切って構造を保持\n・図・グラフが含まれる場合は【図説明】として内容を言語化\n・ページ番号・ヘッダー・フッターも含める\n・不鮮明な箇所は【不明】と記載\n余分な説明は不要です。転写結果のみ出力してください。",
-          },
+          { type: "text", text: HANDWRITING_OCR_PROMPT },
         ],
       }],
     });
@@ -657,7 +715,7 @@ app.post("/grade-compare", async (req, res) => {
         role: "user",
         content: [
           { type: "image", source: { type: "base64", media_type: detectMediaType(answerImage), data: answerImage } },
-          { type: "text", text: "手書き答案のテキストをそのまま抽出してください。読めない部分は[不明]と記載。" }
+          { type: "text", text: HANDWRITING_OCR_PROMPT }
         ]
       }]
     });
@@ -673,7 +731,7 @@ app.post("/grade-compare", async (req, res) => {
           role: "user",
           content: [
             { type: "image", source: { type: "base64", media_type: detectMediaType(modelAnswerImage), data: modelAnswerImage } },
-            { type: "text", text: "模範解答のテキストをそのまま抽出してください。" }
+            { type: "text", text: MODEL_ANSWER_OCR_PROMPT }
           ]
         }]
       });

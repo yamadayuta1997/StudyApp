@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  LayoutAnimation,
   Modal,
   Platform,
   Pressable,
@@ -15,8 +16,14 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  UIManager,
   View,
 } from 'react-native';
+
+// Android で LayoutAnimation を有効化
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const SERVER = 'https://studyapp-production-66d5.up.railway.app';
@@ -90,6 +97,7 @@ export default function CompareScreen() {
   const [evalScore, setEvalScore] = useState<number | null>(null);
   const [improvements, setImprovements] = useState<string[]>([]);
   const [promptTips, setPromptTips] = useState<string[]>([]);
+  const [showOverlay, setShowOverlay] = useState(true);
 
   useFocusEffect(useCallback(() => {
     loadLastSaved();
@@ -273,7 +281,7 @@ export default function CompareScreen() {
     return (
       <View style={styles.imageContainer}>
         <Image source={{ uri: answerUri }} style={styles.fullImage} resizeMode="contain" />
-        {result !== null && feedbacks.length > 0 && (
+        {result !== null && feedbacks.length > 0 && showOverlay && (
           <View style={styles.feedbackOverlay}>
             <View style={styles.overlayHeader}>
               <Text style={styles.overlayTitle}>📌 指摘事項</Text>
@@ -308,6 +316,11 @@ export default function CompareScreen() {
   const closeFeedbackModal = () => {
     console.log('[compare][modal] close');
     setSelectedFeedback(null);
+  };
+
+  const toggleOverlay = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setShowOverlay(prev => !prev);
   };
 
   return (
@@ -591,6 +604,14 @@ export default function CompareScreen() {
           </View>
         )}
       </ScrollView>
+
+      {result !== null && (result.feedbacks?.length ?? 0) > 0 && (
+        <TouchableOpacity style={styles.fab} onPress={toggleOverlay} activeOpacity={0.8}>
+          <Text style={styles.fabText}>
+            {showOverlay ? '∧ 閉じる' : '✎ 添削を見る'}
+          </Text>
+        </TouchableOpacity>
+      )}
     </SafeAreaView>
   );
 }
@@ -806,4 +827,25 @@ const styles = StyleSheet.create({
   saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   saveSub: { textAlign: 'center', fontSize: 12, color: '#6B7280', marginTop: 6 },
   savedDateText: { textAlign: 'center', fontSize: 12, color: '#8E8E93', marginTop: 6 },
+
+  /* 赤ペンオーバーレイ FAB */
+  fab: {
+    position: 'absolute',
+    right: 16,
+    bottom: 24,
+    backgroundColor: '#007AFF',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  fabText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
 });

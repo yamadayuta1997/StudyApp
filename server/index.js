@@ -61,8 +61,22 @@ async function getPdfjsLib() {
 }
 
 // ---- Health ----
-app.get("/health", (req, res) => {
-  res.json({ status: "ok", timestamp: new Date().toISOString() });
+app.get("/health", async (req, res) => {
+  let supabaseStatus = "disabled";
+  if (supabase) {
+    try {
+      const { error } = await supabase.from("history").select("id").limit(1);
+      supabaseStatus = error ? `error: ${error.message}` : "ok";
+    } catch (e) {
+      supabaseStatus = `exception: ${e.message}`;
+    }
+  }
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    supabase: supabaseStatus,
+    supabaseConfigured: !!supabase,
+  });
 });
 
 // ---- Textbook: Register ----

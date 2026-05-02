@@ -1,7 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Application from 'expo-application';
+import { Platform } from 'react-native';
 
-// 開発者バイパス: true にすると制限なし
-export const IS_DEV = false;
+// 開発者端末のベンダーID（初回起動時に Metro ログで確認して埋め込む）
+// 未設定（空文字）の場合は IS_DEV フラグのみで制御
+const DEV_VENDOR_ID = '';
 
 export const DAILY_LIMIT = 3;
 const LIMIT_KEY = 'usage_limit';
@@ -12,12 +15,44 @@ function todayStr(): string {
   return new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }); // "YYYY/M/D"
 }
 
+async function getVendorId(): Promise<string> {
+  try {
+    if (Platform.OS === 'ios') {
+      const id = await Application.getIosIdForVendorAsync();
+      return id ?? '';
+    }
+    // Android: applicationId を代用
+    return Application.applicationId ?? '';
+  } catch (e: any) {
+    console.log('[usageLimit] getVendorId error:', e.message);
+    return '';
+  }
+}
+
+/** 開発者端末かどうかを確認する */
+export async function isDevDevice(): Promise<boolean> {
+  const id = await getVendorId();
+  // 未設定の場合は非DEV扱い
+  if (!DEV_VENDOR_ID) return false;
+  const result = id === DEV_VENDOR_ID;
+  console.log('[usageLimit] vendorId:', id, 'isDev:', result);
+  return result;
+}
+
+/** 初回起動時に Metro ログでデバイス ID を確認するためのヘルパー */
+export async function logDeviceId(): Promise<void> {
+  const id = await getVendorId();
+  console.log('[usageLimit] ===== DEVICE ID =====');
+  console.log('[usageLimit] vendorId:', id);
+  console.log('[usageLimit] DEV_VENDOR_ID に上記の値をコピーしてください');
+  console.log('[usageLimit] ====================');
+}
+
 async function readUsage(): Promise<UsageData> {
   try {
     const raw = await AsyncStorage.getItem(LIMIT_KEY);
     if (!raw) return { date: todayStr(), count: 0 };
     const data: UsageData = JSON.parse(raw);
-    // 日付が変わっていたらリセット
     if (data.date !== todayStr()) {
       console.log('[usageLimit] date changed, reset count:', data.date, '->', todayStr());
       return { date: todayStr(), count: 0 };
@@ -31,7 +66,7 @@ async function readUsage(): Promise<UsageData> {
 
 /** 現在の使用回数を返す（increment なし） */
 export async function getUsageCount(): Promise<number> {
-  if (IS_DEV) return 0;
+  if (await isDevDevice()) return 0;
   const data = await readUsage();
   console.log('[usageLimit] getUsageCount:', data.count, '/', DAILY_LIMIT);
   return data.count;
@@ -43,8 +78,8 @@ export async function checkAndIncrement(): Promise<{
   count: number;
   remaining: number;
 }> {
-  if (IS_DEV) {
-    console.log('[usageLimit] IS_DEV=true, bypass limit');
+  if (await isDevDevice()) {
+    console.log('[usageLimit] dev device, bypass limit');
     return { allowed: true, count: 0, remaining: DAILY_LIMIT };
   }
 

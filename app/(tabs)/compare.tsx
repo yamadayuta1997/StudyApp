@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { DAILY_LIMIT, IS_DEV, checkAndIncrement, getUsageCount } from '@/utils/usageLimit';
+import { DAILY_LIMIT, checkAndIncrement, getUsageCount, isDevDevice, logDeviceId } from '@/utils/usageLimit';
 import {
   ActivityIndicator,
   Alert,
@@ -96,11 +96,13 @@ export default function CompareScreen() {
   const [weakTop3, setWeakTop3] = useState<WeakPoint[]>([]);
   const [usageCount, setUsageCount] = useState(0);
   const [limitReached, setLimitReached] = useState(false);
+  const [isDev, setIsDev] = useState(false);
   const [evalScore, setEvalScore] = useState<number | null>(null);
   const [improvements, setImprovements] = useState<string[]>([]);
   const [promptTips, setPromptTips] = useState<string[]>([]);
 
   useFocusEffect(useCallback(() => {
+    logDeviceId(); // Metro ログでデバイスIDを確認 → DEV_VENDOR_ID に埋め込んだら削除
     loadLastSaved();
     refreshUsage();
     loadPromptTips();
@@ -118,10 +120,12 @@ export default function CompareScreen() {
   };
 
   const refreshUsage = async () => {
+    const dev = await isDevDevice();
+    setIsDev(dev);
     const count = await getUsageCount();
     setUsageCount(count);
-    setLimitReached(count >= DAILY_LIMIT);
-    console.log('[compare][usage] count:', count, 'limitReached:', count >= DAILY_LIMIT);
+    setLimitReached(!dev && count >= DAILY_LIMIT);
+    console.log('[compare][usage] isDev:', dev, 'count:', count, 'limitReached:', !dev && count >= DAILY_LIMIT);
   };
 
   const loadLastSaved = async () => {
@@ -459,7 +463,7 @@ export default function CompareScreen() {
         )}
 
         {/* プライマリ CTA: 分析ボタン（両画像揃ったら強調） */}
-        {limitReached && !IS_DEV ? (
+        {limitReached && !isDev ? (
           <View style={styles.limitBox}>
             <Text style={styles.limitTitle}>🚫 本日の無料利用回数を超えています</Text>
             <Text style={styles.limitSub}>日付が変わるとリセットされます（毎日{DAILY_LIMIT}回無料）</Text>
@@ -480,12 +484,12 @@ export default function CompareScreen() {
             )}
           </TouchableOpacity>
         )}
-        {!IS_DEV && !limitReached && (
+        {!isDev && !limitReached && (
           <Text style={styles.usageText}>
             本日の残り：{Math.max(0, DAILY_LIMIT - usageCount)}/{DAILY_LIMIT} 回
           </Text>
         )}
-        {IS_DEV && (
+        {isDev && (
           <Text style={styles.devBadge}>DEV MODE: 制限なし</Text>
         )}
 

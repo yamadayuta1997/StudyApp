@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 
 // 開発者端末のベンダーID（初回起動時に Metro ログで確認して埋め込む）
 // 未設定（空文字）の場合は IS_DEV フラグのみで制御
-const DEV_VENDOR_ID = '';
+const DEV_VENDOR_ID = '04A99682-E1CE-4671-8E3E-0713C132B4C2';
 
 export const DAILY_LIMIT = 3;
 const LIMIT_KEY = 'usage_limit';

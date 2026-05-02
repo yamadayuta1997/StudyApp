@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { DAILY_LIMIT, checkAndIncrement, getUsageCount, isDevDevice, logDeviceId } from '@/utils/usageLimit';
+import { DAILY_LIMIT, checkAndIncrement, getUsageCount, isDevDevice } from '@/utils/usageLimit';
 import {
   ActivityIndicator,
   Alert,
@@ -102,7 +102,6 @@ export default function CompareScreen() {
   const [promptTips, setPromptTips] = useState<string[]>([]);
 
   useFocusEffect(useCallback(() => {
-    logDeviceId(); // Metro ログでデバイスIDを確認 → DEV_VENDOR_ID に埋め込んだら削除
     loadLastSaved();
     refreshUsage();
     loadPromptTips();

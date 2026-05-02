@@ -1022,10 +1022,76 @@ function detectMediaType(base64) {
   return 'image/jpeg';
 }
 
-const PORT = process.env.PORT || 3001;
-app.listen(PORT, "0.0.0.0", async () => {
-  console.log(`サーバー起動中: http://0.0.0.0:${PORT} (PORT env=${process.env.PORT})`);
-  if (isMongoEnabled) {
-    await connectMongo();
+// ---- Backup: Export ----
+app.get("/backup/export", async (req, res) => {
+  try {
+    if (!isMongoEnabled || !Textbook || !Chunk) {
+      return res.status(503).json({ error: "MongoDB が無効です。バックアップには MongoDB が必要です。" });
+    }
+    const [textbooks, chunks] = await Promise.all([
+      Textbook.find({}).lean(),
+      Chunk.find({}).lean(),
+    ]);
+    const backup = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      textbooks,
+      chunks,
+    };
+    res.setHeader("Content-Disposition", `attachment; filename="studyapp-backup-${Date.now()}.json"`);
+    res.setHeader("Content-Type", "application/json");
+    res.json(backup);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
+
+// ---- Backup: Import / Restore ----
+app.post("/backup/import", async (req, res) => {
+  try {
+    if (!isMongoEnabled || !Textbook || !Chunk) {
+      return res.status(503).json({ error: "MongoDB が無効です。インポートには MongoDB が必要です。" });
+    }
+    const { textbooks = [], chunks = [] } = req.body;
+    if (!Array.isArray(textbooks) || !Array.isArray(chunks)) {
+      return res.status(400).json({ error: "textbooks と chunks は配列である必要があります。" });
+    }
+
+    let textbookCount = 0;
+    for (const tb of textbooks) {
+      const { _id, __v, ...data } = tb;
+      await Textbook.findOneAndUpdate(
+        { textbookId: data.textbookId },
+        { $set: data },
+        { upsert: true, new: true }
+      );
+      textbookCount++;
+    }
+
+    const textbookIds = [...new Set(chunks.map(c => c.textbookId).filter(Boolean))];
+    for (const textbookId of textbookIds) {
+      await Chunk.deleteMany({ textbookId });
+    }
+    let chunkCount = 0;
+    if (chunks.length > 0) {
+      const cleanChunks = chunks.map(({ _id, __v, ...c }) => c);
+      await Chunk.insertMany(cleanChunks);
+      chunkCount = chunks.length;
+    }
+
+    res.json({ ok: true, restored: { textbooks: textbookCount, chunks: chunkCount } });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+const PORT = process.env.PORT || 3001;
+if (require.main === module) {
+  app.listen(PORT, "0.0.0.0", async () => {
+    console.log(`サーバー起動中: http://0.0.0.0:${PORT} (PORT env=${process.env.PORT})`);
+    if (isMongoEnabled) {
+      await connectMongo();
+    }
+  });
+}
+module.exports = app;

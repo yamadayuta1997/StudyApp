@@ -137,7 +137,80 @@ app.post("/textbook/register", (req, res, next) => {
     console.log(`[textbook/register] parsed ${pages.length}/${totalPages} pages`);
 
     const bookId = `${subject}_${bookName}`;
-    textbookCache.set(bookId, { subject, bookName, description, pages, registeredAt: new Date().toISOString() });
+
+    // ---- 図解ページ検出（テキストが少ないページ or pdf-parse が抽出できなかったページ） ----
+    const extractedNums = new Set(pages.map(p => p.pageNum));
+    const diagramPageNums = [];
+    for (let i = 1; i <= totalPages; i++) {
+      const page = pages.find(p => p.pageNum === i);
+      if (!extractedNums.has(i) || (page && page.text.trim().length < 50)) {
+        diagramPageNums.push(i);
+      }
+    }
+
+    // ---- PDF を Supabase Storage に保存（オプション・失敗しても続行） ----
+    let pdfStorageUrl = null;
+    if (supabase && req.file.buffer.length <= 50 * 1024 * 1024) {
+      try {
+        const { error: storageErr } = await supabase.storage
+          .from("textbooks")
+          .upload(`${bookId}.pdf`, req.file.buffer, { contentType: "application/pdf", upsert: true });
+        if (storageErr) {
+          console.warn("[textbook/register] storage upload:", storageErr.message);
+        } else {
+          const { data: urlData } = supabase.storage.from("textbooks").getPublicUrl(`${bookId}.pdf`);
+          pdfStorageUrl = urlData?.publicUrl || null;
+          console.log(`[textbook/register] PDF stored: ${bookId}.pdf`);
+        }
+      } catch (e) {
+        console.warn("[textbook/register] storage exception:", e.message);
+      }
+    }
+
+    // ---- 図解ページを Claude Vision（PDF document API）で解析 ----
+    if (diagramPageNums.length > 0 && req.file.buffer.length <= 32 * 1024 * 1024) {
+      try {
+        const pdfBase64 = req.file.buffer.toString("base64");
+        const diagRes = await client.messages.create({
+          model: "claude-sonnet-4-6",
+          max_tokens: 4096,
+          messages: [{
+            role: "user",
+            content: [
+              {
+                type: "document",
+                source: { type: "base64", media_type: "application/pdf", data: pdfBase64 },
+              },
+              {
+                type: "text",
+                text: `このPDFの以下のページに図・グラフ・表などの図解が含まれている可能性があります。実際に図解がある場合のみ、RAGシステム用に各ページの内容を詳しく説明してください。\n対象ページ: ${diagramPageNums.join(", ")}\n\n図解がある場合は以下の形式で回答してください:\n【ページX】\n（図解の種類・軸ラベル・数値・凡例・キャプション・読み取れる内容）\n\n図解がないページはスキップしてください。`,
+              },
+            ],
+          }],
+        });
+        const responseText = diagRes.content[0].text;
+        const pagePattern = /【ページ(\d+)】\s*([\s\S]*?)(?=【ページ\d+】|$)/g;
+        let m;
+        while ((m = pagePattern.exec(responseText)) !== null) {
+          const num = parseInt(m[1]);
+          const desc = m[2].trim();
+          if (!desc) continue;
+          const existing = pages.find(p => p.pageNum === num);
+          if (existing) {
+            existing.diagramDescription = desc;
+            existing.isImage = true;
+          } else {
+            pages.push({ pageNum: num, text: "", diagramDescription: desc, isImage: true });
+          }
+        }
+        pages.sort((a, b) => a.pageNum - b.pageNum);
+        console.log(`[textbook/register] diagram analysis done: ${diagramPageNums.length} pages checked`);
+      } catch (e) {
+        console.warn("[textbook/register] diagram analysis failed (non-fatal):", e.message);
+      }
+    }
+
+    textbookCache.set(bookId, { subject, bookName, description, pages, pdfStorageUrl, registeredAt: new Date().toISOString() });
     saveTextbookCache();
 
     // MongoDB 並行保存（失敗してもJSONキャッシュは保存済みなので続行）
@@ -145,15 +218,19 @@ app.post("/textbook/register", (req, res, next) => {
       try {
         await Textbook.findOneAndUpdate(
           { textbookId: bookId },
-          { textbookId: bookId, title: bookName, subject, pages, totalPages, createdAt: new Date() },
+          { textbookId: bookId, title: bookName, subject, pages, totalPages, diagramPageNums, pdfStorageUrl, createdAt: new Date() },
           { upsert: true, new: true }
         );
         const chunkDocs = pages.map(p => ({
           textbookId: bookId,
           subject,
-          content: p.text,
+          content: p.diagramDescription
+            ? `${p.text}\n【図解】${p.diagramDescription}`.trim()
+            : p.text,
           pageNum: p.pageNum,
           embedding: [],
+          isImage: !!(p.isImage),
+          diagramDescription: p.diagramDescription || "",
         }));
         await Chunk.deleteMany({ textbookId: bookId });
         if (chunkDocs.length > 0) await Chunk.insertMany(chunkDocs);
@@ -163,7 +240,7 @@ app.post("/textbook/register", (req, res, next) => {
       }
     }
 
-    res.json({ ok: true, bookId, totalPages, subject, bookName });
+    res.json({ ok: true, bookId, totalPages, subject, bookName, diagramPageNums, pdfStorageUrl });
   } catch (e) {
     console.error("/textbook/register error:", e.message);
     res.status(500).json({ error: e.message });
@@ -231,16 +308,17 @@ app.post("/textbook/search", async (req, res) => {
     for (const [bookId, book] of textbookCache.entries()) {
       if (subject && book.subject !== subject) continue;
       for (const page of book.pages) {
-        const idx = page.text.indexOf(query);
+        const searchText = `${page.text} ${page.diagramDescription || ""}`;
+        const idx = searchText.toLowerCase().indexOf(query.toLowerCase());
         if (idx !== -1) {
           const start = Math.max(0, idx - 100);
-          const end = Math.min(page.text.length, idx + query.length + 100);
+          const end   = Math.min(searchText.length, idx + query.length + 100);
           results.push({
             bookId,
             bookName: book.bookName,
             subject:  book.subject,
             pageNum:  page.pageNum,
-            excerpt:  page.text.slice(start, end),
+            excerpt:  searchText.slice(start, end) + (page.isImage ? " 【図解ページ】" : ""),
           });
           if (results.length >= 10) break;
         }
@@ -267,7 +345,10 @@ app.post("/grade", async (req, res) => {
       const book = textbookCache.get(bookId);
       if (book) {
         for (const page of book.pages) {
-          bookContext += `【参考教材】\n${book.bookName} p.${page.pageNum}:\n${page.text}\n\n`;
+          const pageContent = page.diagramDescription
+            ? `${page.text}\n【図解】${page.diagramDescription}`.trim()
+            : page.text;
+          bookContext += `【参考教材】\n${book.bookName} p.${page.pageNum}:\n${pageContent}\n\n`;
         }
       }
     }
@@ -803,11 +884,15 @@ ${modelText}
         if (!ragContext) {
           const fallbackEntries = [...textbookCache.entries()]
             .filter(([, book]) => !subject || book.subject === subject);
+          const pageContent = (page) => page.diagramDescription
+            ? `${page.text}\n【図解】${page.diagramDescription}`.trim()
+            : page.text;
           let fallbackPages = [];
           for (const [bookId, book] of fallbackEntries) {
             for (const page of book.pages || []) {
-              if (keywords.length === 0 || keywords.some(k => page.text.includes(k))) {
-                fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: page.text });
+              const combined = pageContent(page);
+              if (keywords.length === 0 || keywords.some(k => combined.includes(k))) {
+                fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: combined });
               }
               if (fallbackPages.length >= 5) break;
             }
@@ -816,7 +901,7 @@ ${modelText}
           if (fallbackPages.length === 0) {
             for (const [bookId, book] of fallbackEntries) {
               for (const page of book.pages || []) {
-                fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: page.text });
+                fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: pageContent(page) });
                 if (fallbackPages.length >= 5) break;
               }
               if (fallbackPages.length >= 5) break;

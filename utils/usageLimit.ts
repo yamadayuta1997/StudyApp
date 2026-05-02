@@ -15,6 +15,10 @@ function todayStr(): string {
   return new Date().toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo' }); // "YYYY/M/D"
 }
 
+export async function getDeviceId(): Promise<string> {
+  return getVendorId();
+}
+
 async function getVendorId(): Promise<string> {
   try {
     if (Platform.OS === 'ios') {

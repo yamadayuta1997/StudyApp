@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { DAILY_LIMIT, checkAndIncrement, getUsageCount, isDevDevice } from '@/utils/usageLimit';
+import { DAILY_LIMIT, checkAndIncrement, getDeviceId, getUsageCount, isDevDevice } from '@/utils/usageLimit';
 import { isCloseEnough, jaccardSim } from '@/utils/jaccardSim';
 import {
   ActivityIndicator,
@@ -225,10 +225,11 @@ export default function CompareScreen() {
     setEvalScore(null);
     setImprovements([]);
     try {
+      const deviceId = await getDeviceId();
       const resp = await fetch(`${SERVER}/grade-compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answerImage: answerB64, modelAnswerImage: modelB64, promptTips }),
+        body: JSON.stringify({ answerImage: answerB64, modelAnswerImage: modelB64, promptTips, deviceId }),
       });
       console.log('[compare][analyze] status:', resp.status);
       const data = await resp.json();

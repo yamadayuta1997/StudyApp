@@ -4,6 +4,7 @@ const Anthropic = require("@anthropic-ai/sdk");
 const multer = require("multer");
 const fs = require("fs");
 const path = require("path");
+const { supabase } = require("./supabase");
 
 const app = express();
 app.use(cors());
@@ -470,7 +471,7 @@ answerSteps: ${JSON.stringify(result.answerSteps)}
 
 app.post("/grade-compare", async (req, res) => {
   try {
-    const { answerImage, modelAnswerImage, modelAnswerText, subject, promptTips } = req.body;
+    const { answerImage, modelAnswerImage, modelAnswerText, subject, promptTips, deviceId } = req.body;
 
     if (!answerImage) {
       return res.status(400).json({ error: "答案画像が必要です" });
@@ -636,6 +637,22 @@ ${modelText}
     result.evalScore = evalScore;
     result.retryCount = retryCount;
     result.improvements = evalImprovements;
+
+    // Supabase history 保存（失敗しても採点結果は返す）
+    if (supabase) {
+      try {
+        const { error } = await supabase.from("history").insert({
+          device_id:   deviceId || "unknown",
+          score:       result.score ?? null,
+          subject:     subject   || null,
+          result_json: result,
+        });
+        if (error) console.error("[grade-compare][supabase] insert error:", error.message);
+        else       console.log("[grade-compare][supabase] history saved. score:", result.score);
+      } catch (sbErr) {
+        console.error("[grade-compare][supabase] unexpected error:", sbErr.message);
+      }
+    }
 
     // 教科書RAG（既存textbookCacheを利用）
     if (result.feedbacks && result.feedbacks.length > 0) {

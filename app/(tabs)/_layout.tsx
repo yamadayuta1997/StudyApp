@@ -65,6 +65,13 @@ export default function TabLayout() {
           tabBarIcon: ({ color }) => <IconSymbol size={26} name="arrow.left.arrow.right" color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="history"
+        options={{
+          title: '比較履歴',
+          tabBarIcon: ({ color }) => <IconSymbol size={26} name="clock.arrow.circlepath" color={color} />,
+        }}
+      />
     </Tabs>
   );
 }

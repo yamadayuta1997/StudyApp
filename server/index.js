@@ -185,7 +185,7 @@ app.post("/grade", async (req, res) => {
       userContent.push({ type: "text", text: `${bookContext}\n---\n` });
     }
     for (const imgBase64 of answerImages) {
-      userContent.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: imgBase64 } });
+      userContent.push({ type: "image", source: { type: "base64", media_type: detectMediaType(imgBase64), data: imgBase64 } });
     }
 
     const promptText = `あなたは公認会計士試験の採点官です。科目は「${subject}」です。以下の問題と答案を採点してください。\n\n【問題】\n${question}\n\n【答案】\n${answer}\n\n${answerImages.length > 0 ? "答案に画像・図が含まれています。その内容も採点対象にしてください。図の正確性・凡例・単位なども評価してください。\n\n" : ""}正誤判定と改善点を丁寧に説明してください。採点・フィードバック後、以下を必ず記載:\n【得点率】XX%\n【論点】論点名1, 論点名2（主要論点を3つ以内でカンマ区切り）\n【誤答論点】論点名（間違えた論点。完答なら「なし」）\n${bookIds.length > 0 ? "【参考ページ】教科書名 p.XX（参照教材の中で関連するページがあれば・複数可）\n" : ""}【解説まとめ】この問題で押さえるべきポイントを3行以内で`;
@@ -327,7 +327,7 @@ app.post("/extract-pdf-image", upload.single("pdf"), async (req, res) => {
       messages: [{
         role: "user",
         content: [
-          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: imageBase64 } },
+          { type: "image", source: { type: "base64", media_type: detectMediaType(imageBase64), data: imageBase64 } },
           { type: "text", text: "この画像を最高精度でOCRしてください。手書き・印刷・数式・表・図説明をすべて転写。余分な説明は不要です。" },
         ],
       }],
@@ -349,14 +349,13 @@ app.post("/extract-image", upload.single("image"), async (req, res) => {
       return res.status(400).json({ error: "画像ファイルを受信できませんでした。", code: "NO_FILE" });
     }
     const imageBase64 = req.file.buffer.toString("base64");
-    const mediaType = req.file.mimetype || "image/jpeg";
     const message = await client.messages.create({
       model: "claude-sonnet-4-5",
       max_tokens: 4096,
       messages: [{
         role: "user",
         content: [
-          { type: "image", source: { type: "base64", media_type: mediaType, data: imageBase64 } },
+          { type: "image", source: { type: "base64", media_type: detectMediaType(imageBase64), data: imageBase64 } },
           {
             type: "text",
             text: "この画像を最高精度でOCRしてください。\n・手書き文字・印刷文字・数式・記号・表・図のキャプションをすべて転写\n・数式はそのままの形で転写（例: ∑, ≦, →, ÷）\n・表は｜で区切って構造を保持\n・図・グラフが含まれる場合は【図説明】として内容を言語化\n・ページ番号・ヘッダー・フッターも含める\n・不鮮明な箇所は【不明】と記載\n余分な説明は不要です。転写結果のみ出力してください。",
@@ -484,7 +483,7 @@ app.post("/grade-compare", async (req, res) => {
       messages: [{
         role: "user",
         content: [
-          { type: "image", source: { type: "base64", media_type: "image/jpeg", data: answerImage } },
+          { type: "image", source: { type: "base64", media_type: detectMediaType(answerImage), data: answerImage } },
           { type: "text", text: "手書き答案のテキストをそのまま抽出してください。読めない部分は[不明]と記載。" }
         ]
       }]
@@ -500,7 +499,7 @@ app.post("/grade-compare", async (req, res) => {
         messages: [{
           role: "user",
           content: [
-            { type: "image", source: { type: "base64", media_type: "image/jpeg", data: modelAnswerImage } },
+            { type: "image", source: { type: "base64", media_type: detectMediaType(modelAnswerImage), data: modelAnswerImage } },
             { type: "text", text: "模範解答のテキストをそのまま抽出してください。" }
           ]
         }]
@@ -669,6 +668,17 @@ ${modelText}
     res.status(500).json({ error: err.message });
   }
 });
+
+// ---- Helpers ----
+// base64 先頭シグネチャから MIME タイプを判定する
+function detectMediaType(base64) {
+  if (!base64 || typeof base64 !== 'string') return 'image/jpeg';
+  if (base64.startsWith('/9j/'))   return 'image/jpeg';
+  if (base64.startsWith('iVBOR')) return 'image/png';
+  if (base64.startsWith('UklGR')) return 'image/webp';
+  if (base64.startsWith('R0lGO')) return 'image/gif';
+  return 'image/jpeg';
+}
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, "0.0.0.0", () => {

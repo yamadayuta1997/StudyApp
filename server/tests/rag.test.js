@@ -33,7 +33,7 @@ jest.mock('../supabase', () => ({
 process.env.OPENAI_API_KEY    = 'test-openai-key';
 process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
 
-const { extractIssues, getEmbedding } = require('../index');
+const { extractIssues, getEmbedding, splitIntoSemanticChunks } = require('../index');
 const { vectorSearch } = require('../supabase');
 
 beforeEach(() => {
@@ -123,6 +123,65 @@ describe('getEmbedding', () => {
     expect(mockEmbeddingsCreate).toHaveBeenCalledWith(
       expect.objectContaining({ model: 'text-embedding-3-small' })
     );
+  });
+});
+
+// ============================================================
+// splitIntoSemanticChunks — 論点単位チャンク分割 (Issue #12)
+// ============================================================
+describe('splitIntoSemanticChunks', () => {
+  test('空テキストは空配列を返す', () => {
+    expect(splitIntoSemanticChunks(1, '', '', '財務会計論')).toEqual([]);
+    expect(splitIntoSemanticChunks(1, '', null, '財務会計論')).toEqual([]);
+  });
+
+  test('見出し【...】で複数チャンクに分割され topicName が付与される', () => {
+    const text = '【収益認識】顧客との契約を識別し収益を認識する。五つのステップが重要。【リース会計】ファイナンスリースとオペレーティングリースを区別する。';
+    const chunks = splitIntoSemanticChunks(1, text, '', '財務会計論');
+    expect(chunks.length).toBeGreaterThan(1);
+    const first = chunks.find(c => c.topicName.includes('収益認識'));
+    expect(first).toBeDefined();
+    expect(first.importance).toBe(2);
+  });
+
+  test('第X章パターンで分割され重要度3が付与される', () => {
+    const text = '第1章 収益認識 収益認識の基本概念。第2章 リース会計 ファイナンスリースの会計処理。';
+    const chunks = splitIntoSemanticChunks(1, text, '', '財務会計論');
+    expect(chunks.length).toBeGreaterThan(1);
+    const chapterChunks = chunks.filter(c => c.importance === 3);
+    expect(chapterChunks.length).toBeGreaterThan(0);
+  });
+
+  test('見出しなしテキストは段落分割または1チャンクで返る', () => {
+    const text = '収益認識の基本概念は企業が財またはサービスを顧客に移転した時点で収益を認識することです。';
+    const chunks = splitIntoSemanticChunks(1, text, '', '財務会計論');
+    expect(chunks.length).toBeGreaterThanOrEqual(1);
+    expect(chunks[0]).toHaveProperty('topicName');
+    expect(chunks[0]).toHaveProperty('importance');
+    expect(chunks[0]).toHaveProperty('chunkIndex');
+    expect(chunks[0]).toHaveProperty('pageNum', 1);
+  });
+
+  test('diagramDescription がある場合は content に含まれる', () => {
+    const chunks = splitIntoSemanticChunks(5, 'テキスト内容', '折れ線グラフの説明', '財務会計論');
+    const allContent = chunks.map(c => c.content).join('');
+    expect(allContent).toContain('折れ線グラフの説明');
+  });
+
+  test('chunkIndex が 0 から連番で付与される', () => {
+    const text = '【論点A】説明A。【論点B】説明B。【論点C】説明C。';
+    const chunks = splitIntoSemanticChunks(3, text, '', '管理会計論');
+    chunks.forEach((c, i) => {
+      expect(c.chunkIndex).toBe(i);
+    });
+  });
+
+  test('500文字超のチャンクは文境界で再分割される', () => {
+    const longSentence = '収益認識の説明。'.repeat(80);
+    const chunks = splitIntoSemanticChunks(1, longSentence, '', '財務会計論');
+    chunks.forEach(c => {
+      expect(c.content.length).toBeLessThanOrEqual(500);
+    });
   });
 });
 

@@ -109,6 +109,72 @@ const buildPageContent = (page) =>
     ? `${page.text}\n【図解】${page.diagramDescription}`.trim()
     : page.text;
 
+// ---- 論点単位のセマンティックチャンク分割 (Issue #12) ----
+const HEADING_SPLIT_RE = /(?=第[一二三四五六七八九十百\d１２３４５６７８９０]+[章節款目編]|【[^】]{1,50}】|[■◆●▶◎○][^\s]{1,30}|（[一二三四五六七八九十\d１２３４５６７８９０]+）)/;
+
+function extractTopicName(text) {
+  const bracket = text.match(/^【([^】]{1,50})】/);
+  if (bracket) return bracket[0];
+  const chapter = text.match(/^第[一二三四五六七八九十百\d１２３４５６７８９０]+[章節款目編][^\s]*/);
+  if (chapter) return chapter[0];
+  const bullet = text.match(/^[■◆●▶◎○][^\s]{1,30}/);
+  if (bullet) return bullet[0];
+  return '';
+}
+
+function getHeadingImportance(text) {
+  if (/^第[一二三四五六七八九十百\d１２３４５６７８９０]+章/.test(text)) return 3;
+  if (/^第[一二三四五六七八九十百\d１２３４５６７８９０]+[節款目編]/.test(text)) return 2;
+  if (/^【[^】]{1,50}】/.test(text)) return 2;
+  if (/^[■◆●▶◎○]/.test(text)) return 2;
+  return 1;
+}
+
+function splitBySize(pageNum, text, topicName, startIdx) {
+  const MAX = 500;
+  const chunks = [];
+  let remaining = text.trim();
+  let idx = startIdx;
+  while (remaining.length > 0) {
+    if (remaining.length <= MAX) {
+      if (remaining.trim()) chunks.push({ content: remaining.trim(), pageNum, topicName, importance: 1, chunkIndex: idx++ });
+      break;
+    }
+    const boundary = remaining.slice(0, MAX).search(/[。．.！？!?][^。．.！？!?]*$/);
+    const splitAt = boundary > MAX / 3 ? boundary + 1 : MAX;
+    const seg = remaining.slice(0, splitAt).trim();
+    if (seg) chunks.push({ content: seg, pageNum, topicName, importance: 1, chunkIndex: idx++ });
+    remaining = remaining.slice(splitAt);
+  }
+  return chunks;
+}
+
+function splitIntoSemanticChunks(pageNum, text, diagramDescription, subject) {
+  const fullText = diagramDescription
+    ? `${text || ''}\n【図解】${diagramDescription}`.trim()
+    : (text || '').trim();
+  if (!fullText) return [];
+
+  const segments = fullText.split(HEADING_SPLIT_RE).filter(s => s.trim().length > 0);
+  if (segments.length <= 1) {
+    return splitBySize(pageNum, fullText, subject, 0);
+  }
+
+  const chunks = [];
+  let chunkIndex = 0;
+  for (const seg of segments) {
+    const trimmed = seg.trim();
+    if (!trimmed) continue;
+    const topicName = extractTopicName(trimmed) || subject;
+    const importance = getHeadingImportance(trimmed);
+    const subChunks = splitBySize(pageNum, trimmed, topicName, chunkIndex);
+    subChunks.forEach(c => { c.importance = importance; });
+    chunks.push(...subChunks);
+    chunkIndex += subChunks.length;
+  }
+  return chunks;
+}
+
 const registerJobMap = new Map();
 
 // ---- Textbook cache with Volume persistence ----
@@ -341,6 +407,16 @@ async function processTextbookBackground(jobId, bookId, bookName, subject, pages
       }
     }
 
+    // Semantic chunk computation (論点単位分割)
+    const allSemanticChunks = [];
+    for (const p of pages) {
+      const chunks = splitIntoSemanticChunks(p.pageNum, p.text || "", p.diagramDescription, subject);
+      for (const sc of chunks) {
+        allSemanticChunks.push({ ...sc, isImage: !!(p.isImage), diagramDescription: p.diagramDescription || "" });
+      }
+    }
+    console.log(`[semantic] ${allSemanticChunks.length} chunks from ${pages.length} pages for ${bookId}`);
+
     // Phase 3: MongoDB save
     updateJob({ phase: "saving_mongodb" });
     if (isMongoEnabled && Textbook && Chunk) {
@@ -350,9 +426,16 @@ async function processTextbookBackground(jobId, bookId, bookName, subject, pages
           { textbookId: bookId, title: bookName, subject, pages, totalPages, diagramPageNums, pdfStorageUrl, createdAt: new Date() },
           { upsert: true, new: true }
         );
-        const chunkDocs = pages.map(p => ({
-          textbookId: bookId, subject, content: buildPageContent(p),
-          pageNum: p.pageNum, embedding: [], isImage: !!(p.isImage), diagramDescription: p.diagramDescription || "",
+        const chunkDocs = allSemanticChunks.map(sc => ({
+          textbookId: bookId, subject,
+          content: sc.content,
+          pageNum: sc.pageNum,
+          topicName: sc.topicName,
+          importance: sc.importance,
+          chunkIndex: sc.chunkIndex,
+          embedding: [],
+          isImage: sc.isImage,
+          diagramDescription: sc.diagramDescription,
         }));
         await Chunk.deleteMany({ textbookId: bookId });
         if (chunkDocs.length > 0) await Chunk.insertMany(chunkDocs);
@@ -364,38 +447,55 @@ async function processTextbookBackground(jobId, bookId, bookName, subject, pages
 
     // Phase 4: 並列埋め込み生成 → バッチ挿入
     if (supabase && openaiClient) {
-      updateJob({ phase: "embedding", progress: 0, total: pages.length });
+      updateJob({ phase: "embedding", progress: 0, total: allSemanticChunks.length });
       await supabase.from("topics").delete().eq("textbook_id", bookId);
       const CONCURRENCY = 5;
       const rows = [];
-      for (let i = 0; i < pages.length; i += CONCURRENCY) {
-        const batch = pages.slice(i, i + CONCURRENCY);
+      for (let i = 0; i < allSemanticChunks.length; i += CONCURRENCY) {
+        const batch = allSemanticChunks.slice(i, i + CONCURRENCY);
         const batchRows = await Promise.all(
-          batch.map(async (page) => {
-            const content = buildPageContent(page);
-            if (!content) return null;
+          batch.map(async (sc) => {
+            if (!sc.content) return null;
             try {
-              const embedding = await getEmbedding(content.slice(0, 1000));
-              return { subject, content: content.slice(0, 2000), embedding, textbook_id: bookId, page_num: page.pageNum };
+              const embedText = sc.topicName && sc.topicName !== subject
+                ? `${sc.topicName}: ${sc.content}` : sc.content;
+              const embedding = await getEmbedding(embedText.slice(0, 1000));
+              return {
+                subject,
+                content: sc.content.slice(0, 2000),
+                embedding,
+                textbook_id: bookId,
+                page_num: sc.pageNum,
+                topic_name: sc.topicName || null,
+                importance: sc.importance || 1,
+              };
             } catch (e) {
-              console.warn(`[topics] embed p.${page.pageNum}:`, e.message);
+              console.warn(`[topics] embed p.${sc.pageNum} chunk ${sc.chunkIndex}:`, e.message);
               return null;
             }
           })
         );
         rows.push(...batchRows.filter(Boolean));
-        updateJob({ progress: Math.min(i + CONCURRENCY, pages.length) });
+        updateJob({ progress: Math.min(i + CONCURRENCY, allSemanticChunks.length) });
       }
       const INSERT_BATCH = 100;
       for (let i = 0; i < rows.length; i += INSERT_BATCH) {
-        const chunk = rows.slice(i, i + INSERT_BATCH);
-        const { error: insErr } = await supabase.from("topics").insert(chunk);
-        if (insErr) console.warn(`[topics] batch insert:`, insErr.message);
+        const insertBatch = rows.slice(i, i + INSERT_BATCH);
+        const { error: insErr } = await supabase.from("topics").insert(insertBatch);
+        if (insErr) {
+          if (insErr.message && insErr.message.includes('column')) {
+            const legacyBatch = insertBatch.map(({ topic_name, importance, ...rest }) => rest);
+            const { error: legErr } = await supabase.from("topics").insert(legacyBatch);
+            if (legErr) console.warn(`[topics] batch insert (fallback):`, legErr.message);
+          } else {
+            console.warn(`[topics] batch insert:`, insErr.message);
+          }
+        }
       }
-      console.log(`[topics] embedded ${rows.length}/${pages.length} pages for ${bookId}`);
+      console.log(`[topics] embedded ${rows.length}/${allSemanticChunks.length} chunks for ${bookId}`);
     }
 
-    updateJob({ status: "done", phase: "done", progress: pages.length });
+    updateJob({ status: "done", phase: "done", progress: allSemanticChunks.length });
     setTimeout(() => registerJobMap.delete(jobId), 60 * 60 * 1000);
   } catch (e) {
     console.error("[textbook/register] background error:", e.message);
@@ -1213,3 +1313,4 @@ if (require.main === module) {
 module.exports = app;
 module.exports.extractIssues = extractIssues;
 module.exports.getEmbedding  = getEmbedding;
+module.exports.splitIntoSemanticChunks = splitIntoSemanticChunks;

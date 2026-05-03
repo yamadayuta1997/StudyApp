@@ -171,6 +171,7 @@ async function getPdfjsLib() {
 // ---- Health ----
 app.get("/health", async (req, res) => {
   let supabaseStatus = "disabled";
+  let topicsCount = null;
   if (supabase) {
     try {
       const { error } = await supabase.from("history").select("id").limit(1);
@@ -178,12 +179,22 @@ app.get("/health", async (req, res) => {
     } catch (e) {
       supabaseStatus = `exception: ${e.message}`;
     }
+    try {
+      const { count, error } = await supabase
+        .from("topics")
+        .select("*", { count: "exact", head: true });
+      if (!error) topicsCount = count;
+    } catch {}
   }
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
     supabase: supabaseStatus,
     supabaseConfigured: !!supabase,
+    topicsCount,
+    mongodb: isMongoEnabled ? "enabled" : "disabled",
+    openai: openaiClient ? "configured" : "not configured (OPENAI_API_KEY unset)",
+    pgvector: supabase && openaiClient ? "ready" : !supabase ? "supabase not configured" : "openai key missing",
   });
 });
 

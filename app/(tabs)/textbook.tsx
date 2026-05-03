@@ -1,6 +1,6 @@
 import * as DocumentPicker from "expo-document-picker";
 import { useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -37,7 +37,9 @@ export default function TextbookScreen() {
   const [regBookName, setRegBookName] = useState("");
   const [regDescription, setRegDescription] = useState("");
   const [regLoading, setRegLoading] = useState(false);
+  const [regStatusText, setRegStatusText] = useState("アップロード中...");
   const [regError, setRegError] = useState("");
+  const regPollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadBooks = async () => {
     setLoading(true);
@@ -71,6 +73,44 @@ export default function TextbookScreen() {
       },
     ]);
   };
+
+  const stopPolling = () => {
+    if (regPollingRef.current) { clearTimeout(regPollingRef.current); regPollingRef.current = null; }
+  };
+
+  const pollJobStatus = useCallback(async (jobId: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/textbook/register/status/${jobId}`);
+      if (!res.ok) throw new Error("ジョブが見つかりません。");
+      const data = await res.json();
+      if (data.status === "done") {
+        stopPolling();
+        setRegLoading(false);
+        Alert.alert("登録完了", "教科書の登録と埋め込み生成が完了しました");
+        setShowRegister(false);
+        setRegBookName("");
+        setRegDescription("");
+        await loadBooks();
+      } else if (data.status === "error") {
+        stopPolling();
+        setRegLoading(false);
+        setRegError(`処理エラー: ${data.error || "不明なエラー"}`);
+      } else {
+        const phaseLabels: Record<string, string> = {
+          uploading: "PDFをアップロード中...",
+          analyzing_diagrams: "図解を解析中...",
+          saving_mongodb: "データを保存中...",
+          embedding: `埋め込み生成中... ${data.progress ?? 0}/${data.total ?? "?"}`,
+        };
+        setRegStatusText(phaseLabels[data.phase] ?? "処理中...");
+        regPollingRef.current = setTimeout(() => pollJobStatus(jobId), 3000);
+      }
+    } catch {
+      stopPolling();
+      setRegLoading(false);
+      setRegError("状態確認に失敗しました。一覧で登録状況を確認してください。");
+    }
+  }, [loadBooks]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleRegister = async () => {
     if (!regBookName.trim()) {
@@ -108,7 +148,7 @@ export default function TextbookScreen() {
     formData.append("description", regDescription.trim());
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000); // 120s
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
     try {
       const res = await fetch(`${API_BASE_URL}/textbook/register`, {
         method: "POST",
@@ -118,20 +158,24 @@ export default function TextbookScreen() {
       clearTimeout(timeoutId);
       const data = await res.json();
       if (data.error) throw new Error(data.error);
-      Alert.alert("登録完了", `「${data.bookName}」を登録しました（${data.totalPages}ページ）`);
-      setShowRegister(false);
-      setRegBookName("");
-      setRegDescription("");
-      await loadBooks();
+      if (res.status === 202 && data.jobId) {
+        setRegStatusText("処理中...");
+        await loadBooks();
+        regPollingRef.current = setTimeout(() => pollJobStatus(data.jobId), 3000);
+      } else {
+        setRegLoading(false);
+        Alert.alert("登録完了", `「${data.bookName}」を登録しました（${data.totalPages}ページ）`);
+        setShowRegister(false);
+        setRegBookName("");
+        setRegDescription("");
+        await loadBooks();
+      }
     } catch (e: any) {
       clearTimeout(timeoutId);
-      if (e.name === "AbortError") {
-        setRegError("登録がタイムアウトしました（120秒）。PDFのページ数を減らしてお試しください。");
-      } else {
-        setRegError("登録に失敗しました: " + e.message);
-      }
-    } finally {
       setRegLoading(false);
+      setRegError(e.name === "AbortError"
+        ? "アップロードがタイムアウトしました（60秒）。ネットワーク環境をご確認ください。"
+        : "登録に失敗しました: " + e.message);
     }
   };
 
@@ -203,7 +247,7 @@ export default function TextbookScreen() {
       </ScrollView>
 
       {/* 登録モーダル */}
-      <Modal visible={showRegister} animationType="slide" onRequestClose={() => setShowRegister(false)}>
+      <Modal visible={showRegister} animationType="slide" onRequestClose={() => { stopPolling(); setRegLoading(false); setShowRegister(false); }}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <View style={styles.modalContainer}>
             <View style={styles.modalHeader}>
@@ -259,7 +303,7 @@ export default function TextbookScreen() {
                 {regLoading ? (
                   <View style={styles.registerButtonContent}>
                     <ActivityIndicator size="small" color="#fff" />
-                    <Text style={styles.registerButtonText}>アップロード中...</Text>
+                    <Text style={styles.registerButtonText}>{regStatusText}</Text>
                   </View>
                 ) : (
                   <Text style={styles.registerButtonText}>📎 PDFを選択して登録</Text>

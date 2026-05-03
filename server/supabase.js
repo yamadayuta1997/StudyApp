@@ -13,14 +13,6 @@ const supabase = SUPABASE_URL && SUPABASE_SECRET_KEY
     })
   : null;
 
-/**
- * pgvector コサイン類似度検索
- * match_topics RPC（migrations/002_vector_search.sql で定義）を呼び出す
- * @param {number[]} embedding - text-embedding-3-small の出力ベクトル(1536次元)
- * @param {string|null} subject - 科目フィルタ（null で全科目）
- * @param {number} limit - 上位件数（デフォルト5）
- * @returns {Promise<Array<{id,subject,content,textbook_id,page_num,similarity}>>}
- */
 async function vectorSearch(embedding, subject, limit = 5) {
   if (!supabase) return [];
   const { data, error } = await supabase.rpc('match_topics', {

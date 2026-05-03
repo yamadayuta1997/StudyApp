@@ -83,10 +83,6 @@ const openaiClient = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
 
-/**
- * Claude で答案・模範解答から採点論点を抽出する
- * @returns {Promise<string>} カンマ区切りの論点テキスト
- */
 async function extractIssues(answerText, modelText, subject) {
   const res = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
@@ -99,10 +95,6 @@ async function extractIssues(answerText, modelText, subject) {
   return res.content[0].text.trim();
 }
 
-/**
- * OpenAI text-embedding-3-small でテキストをベクトル化する
- * @returns {Promise<number[]>} 1536次元の埋め込みベクトル
- */
 async function getEmbedding(text) {
   if (!openaiClient) throw new Error("OPENAI_API_KEY未設定");
   const res = await openaiClient.embeddings.create({
@@ -111,6 +103,13 @@ async function getEmbedding(text) {
   });
   return res.data[0].embedding;
 }
+
+const buildPageContent = (page) =>
+  page.diagramDescription
+    ? `${page.text}\n【図解】${page.diagramDescription}`.trim()
+    : page.text;
+
+const registerJobMap = new Map();
 
 // ---- Textbook cache with Volume persistence ----
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -179,13 +178,19 @@ app.get("/health", async (req, res) => {
     } catch (e) {
       supabaseStatus = `exception: ${e.message}`;
     }
-    try {
-      const { count, error } = await supabase
-        .from("topics")
-        .select("*", { count: "exact", head: true });
-      if (!error) topicsCount = count;
-    } catch {}
+    if (supabaseStatus === "ok") {
+      try {
+        const { count, error } = await supabase
+          .from("topics")
+          .select("*", { count: "exact", head: true });
+        if (!error) topicsCount = count;
+      } catch {}
+    }
   }
+  let pgvectorStatus;
+  if (supabase && openaiClient)  pgvectorStatus = "ready";
+  else if (!supabase)            pgvectorStatus = "supabase not configured";
+  else                           pgvectorStatus = "openai key missing";
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
@@ -194,7 +199,7 @@ app.get("/health", async (req, res) => {
     topicsCount,
     mongodb: isMongoEnabled ? "enabled" : "disabled",
     openai: openaiClient ? "configured" : "not configured (OPENAI_API_KEY unset)",
-    pgvector: supabase && openaiClient ? "ready" : !supabase ? "supabase not configured" : "openai key missing",
+    pgvector: pgvectorStatus,
   });
 });
 
@@ -253,18 +258,42 @@ app.post("/textbook/register", (req, res, next) => {
       }
     }
 
-    // ---- PDF を Supabase Storage に保存（オプション・失敗しても続行） ----
+    textbookCache.set(bookId, { subject, bookName, description, pages, pdfStorageUrl: null, registeredAt: new Date().toISOString() });
+    saveTextbookCache();
+
+    const jobId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+    registerJobMap.set(jobId, { status: "processing", phase: "uploading", progress: 0, total: pages.length, bookId });
+    res.status(202).json({ ok: true, bookId, totalPages, subject, bookName, diagramPageNums, jobId, status: "processing" });
+
+    setImmediate(() => processTextbookBackground(jobId, bookId, bookName, subject, pages, req.file.buffer, diagramPageNums, totalPages));
+  } catch (e) {
+    console.error("/textbook/register error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---- Textbook: Register — background job ----
+async function processTextbookBackground(jobId, bookId, bookName, subject, pages, pdfBuffer, diagramPageNums, totalPages) {
+  const updateJob = (updates) => {
+    const cur = registerJobMap.get(jobId) || {};
+    registerJobMap.set(jobId, { ...cur, ...updates });
+  };
+
+  try {
+    // Phase 1: Supabase Storage upload
     let pdfStorageUrl = null;
-    if (supabase && req.file.buffer.length <= 50 * 1024 * 1024) {
+    if (supabase && pdfBuffer.length <= 50 * 1024 * 1024) {
       try {
         const { error: storageErr } = await supabase.storage
           .from("textbooks")
-          .upload(`${bookId}.pdf`, req.file.buffer, { contentType: "application/pdf", upsert: true });
+          .upload(`${bookId}.pdf`, pdfBuffer, { contentType: "application/pdf", upsert: true });
         if (storageErr) {
           console.warn("[textbook/register] storage upload:", storageErr.message);
         } else {
           const { data: urlData } = supabase.storage.from("textbooks").getPublicUrl(`${bookId}.pdf`);
           pdfStorageUrl = urlData?.publicUrl || null;
+          const cached = textbookCache.get(bookId);
+          if (cached) { cached.pdfStorageUrl = pdfStorageUrl; textbookCache.set(bookId, cached); saveTextbookCache(); }
           console.log(`[textbook/register] PDF stored: ${bookId}.pdf`);
         }
       } catch (e) {
@@ -272,53 +301,48 @@ app.post("/textbook/register", (req, res, next) => {
       }
     }
 
-    // ---- 図解ページを Claude Vision（PDF document API）で解析 ----
-    if (diagramPageNums.length > 0 && req.file.buffer.length <= 32 * 1024 * 1024) {
+    // Phase 2: Claude Vision diagram analysis
+    updateJob({ phase: "analyzing_diagrams" });
+    if (diagramPageNums.length > 0 && pdfBuffer.length <= 32 * 1024 * 1024) {
       try {
-        const pdfBase64 = req.file.buffer.toString("base64");
+        const pdfBase64 = pdfBuffer.toString("base64");
         const diagRes = await client.messages.create({
           model: "claude-sonnet-4-6",
           max_tokens: 4096,
           messages: [{
             role: "user",
             content: [
-              {
-                type: "document",
-                source: { type: "base64", media_type: "application/pdf", data: pdfBase64 },
-              },
-              {
-                type: "text",
-                text: `このPDFの以下のページに図・グラフ・表などの図解が含まれている可能性があります。実際に図解がある場合のみ、RAGシステム用に各ページの内容を詳しく説明してください。\n対象ページ: ${diagramPageNums.join(", ")}\n\n図解がある場合は以下の形式で回答してください:\n【ページX】\n（図解の種類・軸ラベル・数値・凡例・キャプション・読み取れる内容）\n\n図解がないページはスキップしてください。`,
-              },
+              { type: "document", source: { type: "base64", media_type: "application/pdf", data: pdfBase64 } },
+              { type: "text", text: `このPDFの以下のページに図・グラフ・表などの図解が含まれている可能性があります。実際に図解がある場合のみ、RAGシステム用に各ページの内容を詳しく説明してください。\n対象ページ: ${diagramPageNums.join(", ")}\n\n図解がある場合は以下の形式で回答してください:\n【ページX】\n（図解の種類・軸ラベル・数値・凡例・キャプション・読み取れる内容）\n\n図解がないページはスキップしてください。` },
             ],
           }],
         });
         const responseText = diagRes.content[0].text;
-        const pagePattern = /【ページ(\d+)】\s*([\s\S]*?)(?=【ページ\d+】|$)/g;
-        let m;
-        while ((m = pagePattern.exec(responseText)) !== null) {
-          const num = parseInt(m[1]);
-          const desc = m[2].trim();
-          if (!desc) continue;
-          const existing = pages.find(p => p.pageNum === num);
-          if (existing) {
-            existing.diagramDescription = desc;
-            existing.isImage = true;
-          } else {
-            pages.push({ pageNum: num, text: "", diagramDescription: desc, isImage: true });
+        const cached = textbookCache.get(bookId);
+        if (cached) {
+          const pagePattern = /【ページ(\d+)】\s*([\s\S]*?)(?=【ページ\d+】|$)/g;
+          let m;
+          while ((m = pagePattern.exec(responseText)) !== null) {
+            const num = parseInt(m[1]);
+            const desc = m[2].trim();
+            if (!desc) continue;
+            const existing = cached.pages.find(p => p.pageNum === num);
+            if (existing) { existing.diagramDescription = desc; existing.isImage = true; }
+            else cached.pages.push({ pageNum: num, text: "", diagramDescription: desc, isImage: true });
           }
+          cached.pages.sort((a, b) => a.pageNum - b.pageNum);
+          pages = cached.pages;
+          textbookCache.set(bookId, cached);
+          saveTextbookCache();
         }
-        pages.sort((a, b) => a.pageNum - b.pageNum);
         console.log(`[textbook/register] diagram analysis done: ${diagramPageNums.length} pages checked`);
       } catch (e) {
         console.warn("[textbook/register] diagram analysis failed (non-fatal):", e.message);
       }
     }
 
-    textbookCache.set(bookId, { subject, bookName, description, pages, pdfStorageUrl, registeredAt: new Date().toISOString() });
-    saveTextbookCache();
-
-    // MongoDB 並行保存（失敗してもJSONキャッシュは保存済みなので続行）
+    // Phase 3: MongoDB save
+    updateJob({ phase: "saving_mongodb" });
     if (isMongoEnabled && Textbook && Chunk) {
       try {
         await Textbook.findOneAndUpdate(
@@ -327,15 +351,8 @@ app.post("/textbook/register", (req, res, next) => {
           { upsert: true, new: true }
         );
         const chunkDocs = pages.map(p => ({
-          textbookId: bookId,
-          subject,
-          content: p.diagramDescription
-            ? `${p.text}\n【図解】${p.diagramDescription}`.trim()
-            : p.text,
-          pageNum: p.pageNum,
-          embedding: [],
-          isImage: !!(p.isImage),
-          diagramDescription: p.diagramDescription || "",
+          textbookId: bookId, subject, content: buildPageContent(p),
+          pageNum: p.pageNum, embedding: [], isImage: !!(p.isImage), diagramDescription: p.diagramDescription || "",
         }));
         await Chunk.deleteMany({ textbookId: bookId });
         if (chunkDocs.length > 0) await Chunk.insertMany(chunkDocs);
@@ -345,39 +362,53 @@ app.post("/textbook/register", (req, res, next) => {
       }
     }
 
-    // Supabase topics に埋め込み付きで保存（OPENAI_API_KEY が設定されている場合のみ）
+    // Phase 4: 並列埋め込み生成 → バッチ挿入
     if (supabase && openaiClient) {
-      // 既存チャンクを削除してから再挿入
+      updateJob({ phase: "embedding", progress: 0, total: pages.length });
       await supabase.from("topics").delete().eq("textbook_id", bookId);
-      let embeddedCount = 0;
-      for (const page of pages) {
-        const content = page.diagramDescription
-          ? `${page.text}\n【図解】${page.diagramDescription}`.trim()
-          : page.text;
-        if (!content) continue;
-        try {
-          const embedding = await getEmbedding(content.slice(0, 1000));
-          const { error: insErr } = await supabase.from("topics").insert({
-            subject,
-            content: content.slice(0, 2000),
-            embedding,
-            textbook_id: bookId,
-            page_num: page.pageNum,
-          });
-          if (insErr) console.warn(`[topics] insert p.${page.pageNum}:`, insErr.message);
-          else embeddedCount++;
-        } catch (e) {
-          console.warn(`[topics] embed p.${page.pageNum}:`, e.message);
-        }
+      const CONCURRENCY = 5;
+      const rows = [];
+      for (let i = 0; i < pages.length; i += CONCURRENCY) {
+        const batch = pages.slice(i, i + CONCURRENCY);
+        const batchRows = await Promise.all(
+          batch.map(async (page) => {
+            const content = buildPageContent(page);
+            if (!content) return null;
+            try {
+              const embedding = await getEmbedding(content.slice(0, 1000));
+              return { subject, content: content.slice(0, 2000), embedding, textbook_id: bookId, page_num: page.pageNum };
+            } catch (e) {
+              console.warn(`[topics] embed p.${page.pageNum}:`, e.message);
+              return null;
+            }
+          })
+        );
+        rows.push(...batchRows.filter(Boolean));
+        updateJob({ progress: Math.min(i + CONCURRENCY, pages.length) });
       }
-      console.log(`[topics] embedded ${embeddedCount}/${pages.length} pages for ${bookId}`);
+      const INSERT_BATCH = 100;
+      for (let i = 0; i < rows.length; i += INSERT_BATCH) {
+        const chunk = rows.slice(i, i + INSERT_BATCH);
+        const { error: insErr } = await supabase.from("topics").insert(chunk);
+        if (insErr) console.warn(`[topics] batch insert:`, insErr.message);
+      }
+      console.log(`[topics] embedded ${rows.length}/${pages.length} pages for ${bookId}`);
     }
 
-    res.json({ ok: true, bookId, totalPages, subject, bookName, diagramPageNums, pdfStorageUrl });
+    updateJob({ status: "done", phase: "done", progress: pages.length });
+    setTimeout(() => registerJobMap.delete(jobId), 60 * 60 * 1000);
   } catch (e) {
-    console.error("/textbook/register error:", e.message);
-    res.status(500).json({ error: e.message });
+    console.error("[textbook/register] background error:", e.message);
+    updateJob({ status: "error", error: e.message });
+    setTimeout(() => registerJobMap.delete(jobId), 60 * 60 * 1000);
   }
+}
+
+// ---- Textbook: Register Status ----
+app.get("/textbook/register/status/:jobId", (req, res) => {
+  const job = registerJobMap.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: "ジョブが見つかりません。" });
+  res.json(job);
 });
 
 // ---- Textbook: List ----
@@ -478,10 +509,7 @@ app.post("/grade", async (req, res) => {
       const book = textbookCache.get(bookId);
       if (book) {
         for (const page of book.pages) {
-          const pageContent = page.diagramDescription
-            ? `${page.text}\n【図解】${page.diagramDescription}`.trim()
-            : page.text;
-          bookContext += `【参考教材】\n${book.bookName} p.${page.pageNum}:\n${pageContent}\n\n`;
+          bookContext += `【参考教材】\n${book.bookName} p.${page.pageNum}:\n${buildPageContent(page)}\n\n`;
         }
       }
     }
@@ -976,7 +1004,7 @@ ${modelText}
       try {
         let ragContext = "";
 
-        // ① 論点抽出 → 埋め込み → pgvector 上位5件
+        // pgvector: 論点抽出 → 埋め込み → 上位5件
         if (supabase && openaiClient) {
           try {
             const issuesText = await extractIssues(answerText, modelText, subject);
@@ -994,63 +1022,52 @@ ${modelText}
           }
         }
 
-        // ② pgvector 失敗 or 未設定 → MongoDB regex フォールバック
-        if (!ragContext) {
-          const stepTexts = [
-            result.feedbacks?.[0]?.point,
-            result.answerSteps?.issueRecognition,
-            result.answerSteps?.premise,
-            result.answerSteps?.logic,
-            result.answerSteps?.conclusion,
-            result.modelSteps?.issueRecognition,
-            result.modelSteps?.premise,
-            result.modelSteps?.logic,
-            result.modelSteps?.conclusion,
-          ].filter(Boolean).join(" ");
-          const keywords = [...new Set(
-            (stepTexts.match(/[一-龯ぁ-んァ-ヶーA-Za-z0-9]{2,20}/g) || [])
-              .map(k => k.trim())
-              .filter(k => !["不明", "なし", "自分", "模範", "答案", "解答"].includes(k))
-          )].slice(0, 8);
+        // キーワード抽出（MongoDB・JSONフォールバック共用）
+        const stepTexts = [
+          result.feedbacks?.[0]?.point,
+          result.answerSteps?.issueRecognition,
+          result.answerSteps?.premise,
+          result.answerSteps?.logic,
+          result.answerSteps?.conclusion,
+          result.modelSteps?.issueRecognition,
+          result.modelSteps?.premise,
+          result.modelSteps?.logic,
+          result.modelSteps?.conclusion,
+        ].filter(Boolean).join(" ");
+        const keywords = [...new Set(
+          (stepTexts.match(/[一-龯ぁ-んァ-ヶーA-Za-z0-9]{2,20}/g) || [])
+            .map(k => k.trim())
+            .filter(k => !["不明", "なし", "自分", "模範", "答案", "解答"].includes(k))
+        )].slice(0, 8);
 
-          if (isMongoEnabled && Chunk) {
-            try {
-              if (keywords.length > 0) {
-                const filter = { content: { $regex: keywords.map(escapeRegExp).join("|"), $options: "i" } };
-                if (subject) filter.subject = subject;
-                const chunks = await Chunk.find(filter).limit(5).lean();
-                console.log(`[rag] MongoDB hits=${chunks.length} subject=${subject || "all"} keywords=${keywords.join(",")}`);
-                if (chunks.length > 0) {
-                  ragContext = chunks
-                    .map((c, i) => `[${i + 1}] ${c.textbookId || "教科書"} p.${c.pageNum}: ${c.content.slice(0, 500)}`)
-                    .join("\n");
-                }
+        // MongoDB regex フォールバック
+        if (!ragContext && isMongoEnabled && Chunk) {
+          try {
+            if (keywords.length > 0) {
+              const filter = { content: { $regex: keywords.map(escapeRegExp).join("|"), $options: "i" } };
+              if (subject) filter.subject = subject;
+              const chunks = await Chunk.find(filter).limit(5).lean();
+              console.log(`[rag] MongoDB hits=${chunks.length} subject=${subject || "all"} keywords=${keywords.join(",")}`);
+              if (chunks.length > 0) {
+                ragContext = chunks
+                  .map((c, i) => `[${i + 1}] ${c.textbookId || "教科書"} p.${c.pageNum}: ${c.content.slice(0, 500)}`)
+                  .join("\n");
               }
-            } catch (mongoErr) {
-              console.error("[rag] MongoDB search error, falling back to JSON:", mongoErr.message);
             }
+          } catch (mongoErr) {
+            console.error("[rag] MongoDB search error, falling back to JSON:", mongoErr.message);
           }
         }
 
-        // ③ MongoDB チャンクなし → textbooks.json フォールバック
+        // textbooks.json フォールバック
         if (!ragContext) {
           const fallbackEntries = [...textbookCache.entries()]
             .filter(([, book]) => !subject || book.subject === subject);
-          const pageContent = (page) => page.diagramDescription
-            ? `${page.text}\n【図解】${page.diagramDescription}`.trim()
-            : page.text;
-          const stepTexts2 = [
-            result.feedbacks?.[0]?.point,
-            result.answerSteps?.issueRecognition,
-          ].filter(Boolean).join(" ");
-          const kw2 = [...new Set(
-            (stepTexts2.match(/[一-龯ぁ-んァ-ヶーA-Za-z0-9]{2,20}/g) || []).slice(0, 8)
-          )];
           let fallbackPages = [];
           for (const [bookId, book] of fallbackEntries) {
             for (const page of book.pages || []) {
-              const combined = pageContent(page);
-              if (kw2.length === 0 || kw2.some(k => combined.includes(k))) {
+              const combined = buildPageContent(page);
+              if (keywords.length === 0 || keywords.some(k => combined.includes(k))) {
                 fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: combined });
               }
               if (fallbackPages.length >= 5) break;
@@ -1060,7 +1077,7 @@ ${modelText}
           if (fallbackPages.length === 0) {
             for (const [bookId, book] of fallbackEntries) {
               for (const page of book.pages || []) {
-                fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: pageContent(page) });
+                fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: buildPageContent(page) });
                 if (fallbackPages.length >= 5) break;
               }
               if (fallbackPages.length >= 5) break;
@@ -1088,9 +1105,7 @@ ${ragContext}`,
           });
           result.textbookRef = ragRes.content[0].text.trim();
         }
-      } catch (_) {
-        // RAG失敗はスルー
-      }
+      } catch (_) {}
     }
 
     res.json(result);

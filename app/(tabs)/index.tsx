@@ -109,10 +109,36 @@ export default function HomeScreen() {
     setDailyTip("");
     try {
       const subject = stats.weakestSubject || "財務会計論";
+
+      const raw = await AsyncStorage.getItem("history");
+      const history: any[] = raw ? JSON.parse(raw) : [];
+      const subjectHistory = history.filter((h) => h.subject === subject);
+
+      // Count wrong topics across all subject history
+      const topicCounts: Record<string, number> = {};
+      subjectHistory.forEach((h) => {
+        (h.wrongTopics || []).forEach((t: string) => {
+          topicCounts[t] = (topicCounts[t] || 0) + 1;
+        });
+      });
+      const wrongTopicsRanked = Object.entries(topicCounts)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([topic, count]) => ({ topic, count }));
+
+      // Detect improved topics: had errors in older history but not in most recent 5 sessions
+      const recentHistory = subjectHistory.slice(-5);
+      const olderHistory = subjectHistory.slice(0, -5);
+      const recentWrong = new Set<string>();
+      recentHistory.forEach((h) => (h.wrongTopics || []).forEach((t: string) => recentWrong.add(t)));
+      const olderWrong = new Set<string>();
+      olderHistory.forEach((h) => (h.wrongTopics || []).forEach((t: string) => olderWrong.add(t)));
+      const improvedTopics = [...olderWrong].filter((t) => !recentWrong.has(t));
+
       const response = await fetch(`${API_BASE_URL}/study-tip`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subject, avgScore: stats.avgScore }),
+        body: JSON.stringify({ subject, avgScore: stats.avgScore, wrongTopicsRanked, improvedTopics }),
       });
       const data = await response.json();
       setDailyTip(data.tip);

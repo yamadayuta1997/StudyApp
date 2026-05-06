@@ -924,16 +924,35 @@ app.post("/extract-image", upload.single("image"), async (req, res) => {
 // ---- Study Tip ----
 app.post("/study-tip", async (req, res) => {
   try {
-    const { subject, avgScore } = req.body;
+    const { subject, avgScore, wrongTopicsRanked = [], improvedTopics = [] } = req.body;
     const scoreContext = avgScore !== null && avgScore !== undefined
       ? `これまでの平均得点率は${avgScore}%です。` : "";
+
+    let promptContent;
+    if (wrongTopicsRanked.length > 0) {
+      const topicsText = wrongTopicsRanked
+        .map((t, i) => `${i + 1}. ${t.topic}（${t.count}回ミス）`)
+        .join("\n");
+      const improvedSection = improvedTopics.length > 0
+        ? `\n\n【改善が見られた論点（最近のミスなし）】\n${improvedTopics.join("、")}`
+        : "";
+      promptContent = `公認会計士試験の「${subject}」の学習者に、ミス履歴に基づいたパーソナライズされたアドバイスをください。${scoreContext}
+
+【よくミスする論点（頻度順）】
+${topicsText}${improvedSection}
+
+以下の形式で回答してください：
+1. 特に重点的に復習すべき論点と理由（ミスの多い論点を優先して2〜3点）
+2. 各論点の効果的な学習アプローチ（2〜3点）
+3. ミスのパターンから見える課題と対策（1〜2点）${improvedTopics.length > 0 ? "\n4. 改善できている論点への一言コメント（1点）" : ""}`;
+    } else {
+      promptContent = `公認会計士試験の「${subject}」について学習アドバイスをください。${scoreContext}\n\n以下の形式で回答してください：\n1. この科目で特に重要なポイント（2〜3点）\n2. 効果的な学習方法（2〜3点）\n3. よくある失点パターンと対策（1〜2点）`;
+    }
+
     const message = await client.messages.create({
-      model: "claude-sonnet-4-5",
+      model: "claude-sonnet-4-6",
       max_tokens: 1024,
-      messages: [{
-        role: "user",
-        content: `公認会計士試験の「${subject}」について学習アドバイスをください。${scoreContext}\n\n以下の形式で回答してください：\n1. この科目で特に重要なポイント（2〜3点）\n2. 効果的な学習方法（2〜3点）\n3. よくある失点パターンと対策（1〜2点）`,
-      }],
+      messages: [{ role: "user", content: promptContent }],
     });
     res.json({ tip: message.content[0].text });
   } catch (e) {

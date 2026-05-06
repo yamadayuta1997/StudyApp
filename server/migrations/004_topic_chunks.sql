@@ -10,6 +10,9 @@ ALTER TABLE topics ADD COLUMN IF NOT EXISTS importance  INTEGER DEFAULT 1;
 -- 論点名インデックス
 CREATE INDEX IF NOT EXISTS topics_topic_name_idx ON topics (topic_name);
 
+-- 戻り値型が変わるため既存関数を先に削除
+DROP FUNCTION IF EXISTS match_topics(vector,text,integer);
+
 -- match_topics: topic_name / importance を返すよう更新
 CREATE OR REPLACE FUNCTION match_topics(
   query_embedding vector(1536),

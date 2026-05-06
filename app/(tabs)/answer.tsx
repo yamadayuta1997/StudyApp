@@ -3,6 +3,8 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
+import { getDeviceId } from "@/utils/usageLimit";
+import { updateCautionTopics } from "@/utils/cautionTopics";
 import {
   ActivityIndicator,
   Image,
@@ -308,11 +310,12 @@ export default function AnswerScreen() {
     setTopicList([]);
     setTopicEvaluation(null);
     try {
+      const deviceId = await getDeviceId();
       const res = await fetch(`${API_BASE_URL}/grade`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question, answer, subject,
+          question, answer, subject, deviceId,
           bookIds: [...selectedBookIds],
           questionImages: questionImages.map(i => i.base64),
           answerImages: answerImages.map(i => i.base64),
@@ -328,18 +331,26 @@ export default function AnswerScreen() {
       setTopicList(data.topicList || []);
       setTopicEvaluation(data.topicEvaluation || null);
 
+      const topics: string[] = data.topics ?? [];
+      const wrongTopics: string[] = data.wrongTopics ?? [];
+      const correctTopics = topics.filter(t => !wrongTopics.includes(t));
+
       const newItem = {
         id: Date.now().toString(),
         subject, question, answer,
         result: data.result,
         score: data.score ?? null,
         date: new Date().toLocaleDateString("ja-JP"),
-        topics: data.topics ?? [],
-        wrongTopics: data.wrongTopics ?? [],
+        topics,
+        wrongTopics,
       };
       const raw = await AsyncStorage.getItem("history");
       const history = raw ? JSON.parse(raw) : [];
       await AsyncStorage.setItem("history", JSON.stringify([...history, newItem]));
+
+      if (wrongTopics.length > 0 || correctTopics.length > 0) {
+        await updateCautionTopics(wrongTopics, correctTopics, subject);
+      }
     } catch {
       setError("採点に失敗しました。もう一度お試しください。");
     } finally {

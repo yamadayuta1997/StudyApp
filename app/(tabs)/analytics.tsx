@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
+import { getCautionTopics, CautionTopic } from "@/utils/cautionTopics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
@@ -62,6 +63,7 @@ export default function AnalyticsScreen() {
   const [tipSubject, setTipSubject] = useState("");
   const [tipLoading, setTipLoading] = useState(false);
   const [top5WrongTopics, setTop5WrongTopics] = useState<{ topic: string; count: number }[]>([]);
+  const [cautionTopics, setCautionTopics] = useState<CautionTopic[]>([]);
 
   useFocusEffect(useCallback(() => { loadAnalytics(); }, []));
 
@@ -122,6 +124,9 @@ export default function AnalyticsScreen() {
       .slice(0, 5)
       .map(([topic, count]) => ({ topic, count }));
     setTop5WrongTopics(top5);
+
+    const caution = await getCautionTopics();
+    setCautionTopics(caution);
   };
 
   const getStudyTip = async (subject: string, avgScore: number | null) => {
@@ -166,6 +171,24 @@ export default function AnalyticsScreen() {
           <Text style={styles.summaryLabel}>未練習科目</Text>
         </View>
       </View>
+
+      {/* 要注意論点 */}
+      {cautionTopics.length > 0 && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>⚠️ 要注意論点（3回連続ミス）</Text>
+          {cautionTopics.map(({ topic, subject, streak }) => (
+            <View key={`${subject}::${topic}`} style={styles.cautionRow}>
+              <View style={styles.cautionInfo}>
+                <Text style={styles.cautionTopic}>{topic}</Text>
+                <Text style={styles.cautionSubject}>{subject}</Text>
+              </View>
+              <View style={styles.cautionBadge}>
+                <Text style={styles.cautionBadgeText}>{streak}連続ミス</Text>
+              </View>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* 苦手論点 TOP5 */}
       {top5WrongTopics.length > 0 && (
@@ -337,6 +360,19 @@ const styles = StyleSheet.create({
     borderColor: "#fca5a5",
   },
   wrongTopicBadgeText: { color: "#dc2626", fontSize: 12, fontWeight: "bold" },
+  cautionRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 },
+  cautionInfo: { flex: 1 },
+  cautionTopic: { fontSize: 14, fontWeight: "600", color: "#1e293b" },
+  cautionSubject: { fontSize: 11, color: "#64748b", marginTop: 2 },
+  cautionBadge: {
+    backgroundColor: "#fef3c7",
+    paddingVertical: 3,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#fcd34d",
+  },
+  cautionBadgeText: { color: "#92400e", fontSize: 12, fontWeight: "bold" },
 });
 
 const markdownStyles = {

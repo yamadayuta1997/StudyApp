@@ -669,7 +669,7 @@ app.post("/textbook/chunks-by-pages", async (req, res) => {
 app.post("/grade", async (req, res) => {
   try {
     const { question, answer, subject, bookIds = [], questionImages = [], answerImages = [],
-            sourceBookId, sourceFromPage, sourceToPage } = req.body;
+            sourceBookId, sourceFromPage, sourceToPage, deviceId } = req.body;
     if (!question || !answer || !subject) {
       return res.status(400).json({ error: "question・answer・subject は必須です。" });
     }
@@ -802,6 +802,22 @@ app.post("/grade", async (req, res) => {
         irrelevant: irrelevantMatch && irrelevantMatch[1].trim() !== "なし"
           ? irrelevantMatch[1].split(/[,、，]/).map(s => s.trim()).filter(Boolean) : [],
       };
+    }
+
+    // Supabase history 保存（失敗しても採点結果は返す）
+    if (supabase) {
+      try {
+        const { error: sbErr } = await supabase.from("history").insert({
+          device_id:   deviceId || "unknown",
+          score:       score    ?? null,
+          subject:     subject  || null,
+          result_json: { result: resultText, score, topics, wrongTopics, refPages, summary },
+        });
+        if (sbErr) console.error("[grade][supabase] insert error:", sbErr.message);
+        else       console.log("[grade][supabase] history saved. score:", score);
+      } catch (sbEx) {
+        console.error("[grade][supabase] unexpected error:", sbEx.message);
+      }
     }
 
     res.json({ result: resultText, score, topics, wrongTopics, refPages, summary, topicList, topicEvaluation });

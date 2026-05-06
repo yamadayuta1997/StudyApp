@@ -4,6 +4,7 @@ import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { moveItem } from '@/utils/imageReorder';
 import { DAILY_LIMIT, checkAndIncrement, getDeviceId, getUsageCount, isDevDevice } from '@/utils/usageLimit';
+import { updateCautionTopics } from '@/utils/cautionTopics';
 import { isCloseEnough, jaccardSim } from '@/utils/jaccardSim';
 import {
   ActivityIndicator,
@@ -273,7 +274,7 @@ const [usageCount, setUsageCount] = useState(0);
       const resp = await fetch(`${SERVER}/grade-compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answerImages: answerB64s, modelAnswerImages: modelB64s, promptTips, deviceId }),
+        body: JSON.stringify({ answerImages: answerB64s, modelAnswerImages: modelB64s, promptTips, deviceId, subject }),
       });
       console.log('[compare][analyze] status:', resp.status);
       const data = await resp.json();
@@ -296,6 +297,13 @@ const [usageCount, setUsageCount] = useState(0);
       setEvalScore(es);
       setImprovements(imps);
       await saveResult(safe, imps);
+
+      // 科目を論点名の代わりに使い、スコアで正誤を判定
+      if (safe.score >= 70) {
+        await updateCautionTopics([], [subject], subject);
+      } else if (safe.score < 60) {
+        await updateCautionTopics([subject], [], subject);
+      }
     } catch (e: any) {
       console.log('[compare][analyze] ERROR:', e.message);
       Alert.alert('エラー', e.message);

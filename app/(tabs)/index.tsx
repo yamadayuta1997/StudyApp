@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
+import { getCautionTopics, CautionTopic } from "@/utils/cautionTopics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
@@ -51,6 +52,7 @@ export default function HomeScreen() {
   });
   const [dailyTip, setDailyTip] = useState("");
   const [tipLoading, setTipLoading] = useState(false);
+  const [cautionTopics, setCautionTopics] = useState<CautionTopic[]>([]);
   const [userName, setUserName] = useState("受験生");
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingName, setEditingName] = useState("");
@@ -142,6 +144,9 @@ export default function HomeScreen() {
       weakestSubject: weakest,
       recentSubjects: recent,
     });
+
+    const caution = await getCautionTopics();
+    setCautionTopics(caution);
   };
 
   const getDailyTip = async () => {
@@ -248,6 +253,18 @@ export default function HomeScreen() {
           {stats.weakestSubject && (
             <View style={styles.weakAlert}>
               <Text style={styles.weakAlertText}>⚠️ 要強化：{stats.weakestSubject}</Text>
+            </View>
+          )}
+
+          {cautionTopics.length > 0 && (
+            <View style={styles.cautionAlert}>
+              <Text style={styles.cautionAlertTitle}>🚨 要注意論点 {cautionTopics.length}件</Text>
+              {cautionTopics.slice(0, 3).map(({ topic, subject }) => (
+                <Text key={`${subject}::${topic}`} style={styles.cautionAlertItem}>・{topic}（{subject}）</Text>
+              ))}
+              {cautionTopics.length > 3 && (
+                <Text style={styles.cautionAlertMore}>他 {cautionTopics.length - 3} 件 → 苦手分析で確認</Text>
+              )}
             </View>
           )}
 
@@ -417,6 +434,17 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   weakAlertText: { color: "#dc2626", fontSize: 13, fontWeight: "600" },
+  cautionAlert: {
+    backgroundColor: "#fffbeb",
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: "#fcd34d",
+  },
+  cautionAlertTitle: { fontSize: 13, fontWeight: "700", color: "#92400e", marginBottom: 6 },
+  cautionAlertItem: { fontSize: 12, color: "#78350f", marginBottom: 2 },
+  cautionAlertMore: { fontSize: 11, color: "#b45309", marginTop: 4 },
   recentRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
   recentLabel: { fontSize: 12, color: "#64748b" },
   recentChip: {

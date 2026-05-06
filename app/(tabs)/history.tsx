@@ -28,11 +28,15 @@ type GradeResult = {
 export type CompareHistoryItem = {
   id: string;
   date: string;
+  subject?: string;
   result: GradeResult;
   answerUri?: string;
 };
 
 const STORAGE_KEY = 'compare_history';
+
+const SUBJECTS = ['財務会計論', '管理会計論', '監査論', '企業法', '租税法', '経営学'];
+const ALL_TAB = 'すべて';
 
 const TYPE_COLOR: Record<string, string> = {
   '論点誤認': '#FF3B30',
@@ -64,6 +68,7 @@ function PassBadge({ passed }: { passed: boolean }) {
 export default function CompareHistoryScreen() {
   const [history, setHistory] = useState<CompareHistoryItem[]>([]);
   const [selected, setSelected] = useState<CompareHistoryItem | null>(null);
+  const [activeSubject, setActiveSubject] = useState<string>(ALL_TAB);
 
   const loadHistory = async () => {
     const raw = await AsyncStorage.getItem(STORAGE_KEY);
@@ -80,138 +85,181 @@ export default function CompareHistoryScreen() {
   };
 
   const sorted = [...history].reverse();
+  const filtered = activeSubject === ALL_TAB
+    ? sorted
+    : sorted.filter((item) => item.subject === activeSubject);
+
+  const tabs = [ALL_TAB, ...SUBJECTS];
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>📊 比較添削 履歴</Text>
+      <View style={styles.wrapper}>
+        <Text style={styles.title}>📋 過去のミス履歴</Text>
 
-        {sorted.length === 0 && (
-          <Text style={styles.empty}>まだ履歴がありません{'\n'}比較添削タブで採点を保存してください</Text>
-        )}
-
-        {sorted.map((item) => (
-          <TouchableOpacity key={item.id} style={styles.card} onPress={() => setSelected(item)}>
-            <View style={styles.cardHeader}>
-              <Text style={styles.subject}>比較添削</Text>
-              <View style={styles.cardHeaderRight}>
-                <ScoreBadge score={item.result.score} />
-                <PassBadge passed={item.result.passed} />
-              </View>
-            </View>
-            <Text style={styles.date}>{item.date}</Text>
-            {item.result.fatalErrors > 0 && (
-              <Text style={styles.fatalError}>重大ミス {item.result.fatalErrors}件</Text>
-            )}
-            {item.result.feedbacks.length > 0 && (
-              <Text style={styles.feedbackPreview} numberOfLines={1}>
-                {item.result.feedbacks[0].point}
+        {/* 教科別フィルタータブ */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabBar}
+        >
+          {tabs.map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              style={[styles.tab, activeSubject === tab && styles.tabActive]}
+              onPress={() => setActiveSubject(tab)}
+            >
+              <Text style={[styles.tabText, activeSubject === tab && styles.tabTextActive]}>
+                {tab}
               </Text>
-            )}
-            <Text style={styles.tapHint}>タップして詳細を見る →</Text>
-          </TouchableOpacity>
-        ))}
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
-        <Modal visible={selected !== null} animationType="slide" onRequestClose={() => setSelected(null)}>
-          <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
-              <View>
-                <Text style={styles.modalSubject}>比較添削</Text>
-                <Text style={styles.modalDate}>{selected?.date}</Text>
-              </View>
-              {selected && (
-                <View style={styles.modalBadges}>
-                  <View style={styles.modalScoreBadge}>
-                    <Text style={styles.modalScoreText}>{selected.result.score}%</Text>
-                  </View>
-                  <View style={[styles.modalPassBadge, { backgroundColor: selected.result.passed ? '#16a34a' : '#dc2626' }]}>
-                    <Text style={styles.modalPassText}>{selected.result.passed ? '合格' : '不合格'}</Text>
-                  </View>
+        <ScrollView contentContainerStyle={styles.container}>
+          {filtered.length === 0 && (
+            <Text style={styles.empty}>
+              {activeSubject === ALL_TAB
+                ? 'まだ履歴がありません\n比較添削タブで採点を保存してください'
+                : `「${activeSubject}」の履歴がありません`}
+            </Text>
+          )}
+
+          {filtered.map((item) => (
+            <TouchableOpacity key={item.id} style={styles.card} onPress={() => setSelected(item)}>
+              <View style={styles.cardHeader}>
+                <Text style={styles.subject}>{item.subject ?? '比較添削'}</Text>
+                <View style={styles.cardHeaderRight}>
+                  <ScoreBadge score={item.result.score} />
+                  <PassBadge passed={item.result.passed} />
                 </View>
+              </View>
+              <Text style={styles.date}>{item.date}</Text>
+              {item.result.fatalErrors > 0 && (
+                <Text style={styles.fatalError}>重大ミス {item.result.fatalErrors}件</Text>
               )}
-            </View>
-
-            <ScrollView style={styles.modalScroll}>
-              {selected && (
-                <>
-                  {selected.result.fatalErrors > 0 && (
-                    <View style={styles.alertBox}>
-                      <Text style={styles.alertText}>⚠️ 重大ミス {selected.result.fatalErrors}件</Text>
-                    </View>
-                  )}
-                  {selected.result.missingProcess && (
-                    <View style={styles.alertBox}>
-                      <Text style={styles.alertText}>⚠️ 思考プロセス不足</Text>
-                    </View>
-                  )}
-
-                  {selected.result.feedbacks.length > 0 && (
-                    <>
-                      <Text style={styles.sectionLabel}>📌 指摘事項</Text>
-                      {selected.result.feedbacks.map((fb, i) => (
-                        <View key={i} style={[styles.feedbackCard, { borderLeftColor: TYPE_COLOR[fb.type] ?? '#999' }]}>
-                          <Text style={[styles.feedbackType, { color: TYPE_COLOR[fb.type] ?? '#999' }]}>{fb.type}</Text>
-                          <Text style={styles.feedbackPoint}>{fb.point}</Text>
-                        </View>
-                      ))}
-                    </>
-                  )}
-
-                  <Text style={styles.sectionLabel}>🧠 あなたの思考ステップ</Text>
-                  <View style={styles.stepsCard}>
-                    <Text style={styles.stepLabel}>問題認識</Text>
-                    <Text style={styles.stepText}>{selected.result.answerSteps.issueRecognition}</Text>
-                    <Text style={styles.stepLabel}>前提</Text>
-                    <Text style={styles.stepText}>{selected.result.answerSteps.premise}</Text>
-                    <Text style={styles.stepLabel}>論理</Text>
-                    <Text style={styles.stepText}>{selected.result.answerSteps.logic}</Text>
-                    <Text style={styles.stepLabel}>結論</Text>
-                    <Text style={styles.stepText}>{selected.result.answerSteps.conclusion}</Text>
-                  </View>
-
-                  <Text style={styles.sectionLabel}>📖 模範解答の思考ステップ</Text>
-                  <View style={styles.stepsCard}>
-                    <Text style={styles.stepLabel}>問題認識</Text>
-                    <Text style={styles.stepText}>{selected.result.modelSteps.issueRecognition}</Text>
-                    <Text style={styles.stepLabel}>前提</Text>
-                    <Text style={styles.stepText}>{selected.result.modelSteps.premise}</Text>
-                    <Text style={styles.stepLabel}>論理</Text>
-                    <Text style={styles.stepText}>{selected.result.modelSteps.logic}</Text>
-                    <Text style={styles.stepLabel}>結論</Text>
-                    <Text style={styles.stepText}>{selected.result.modelSteps.conclusion}</Text>
-                  </View>
-
-                  {selected.result.textbookRef && (
-                    <>
-                      <Text style={styles.sectionLabel}>📚 教科書参照</Text>
-                      <Text style={styles.textbookRef}>{selected.result.textbookRef}</Text>
-                    </>
-                  )}
-                </>
+              {item.result.feedbacks.length > 0 && (
+                <Text style={styles.feedbackPreview} numberOfLines={1}>
+                  {item.result.feedbacks[0].point}
+                </Text>
               )}
-            </ScrollView>
+              <Text style={styles.tapHint}>タップして詳細を見る →</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
-            <View style={styles.modalFooter}>
-              <TouchableOpacity style={styles.closeButton} onPress={() => setSelected(null)}>
-                <Text style={styles.closeButtonText}>閉じる</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={() => selected && deleteItem(selected.id)}
-              >
-                <Text style={styles.deleteButtonText}>削除</Text>
-              </TouchableOpacity>
+      <Modal visible={selected !== null} animationType="slide" onRequestClose={() => setSelected(null)}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <View>
+              <Text style={styles.modalSubject}>{selected?.subject ?? '比較添削'}</Text>
+              <Text style={styles.modalDate}>{selected?.date}</Text>
             </View>
+            {selected && (
+              <View style={styles.modalBadges}>
+                <View style={styles.modalScoreBadge}>
+                  <Text style={styles.modalScoreText}>{selected.result.score}%</Text>
+                </View>
+                <View style={[styles.modalPassBadge, { backgroundColor: selected.result.passed ? '#16a34a' : '#dc2626' }]}>
+                  <Text style={styles.modalPassText}>{selected.result.passed ? '合格' : '不合格'}</Text>
+                </View>
+              </View>
+            )}
           </View>
-        </Modal>
-      </ScrollView>
+
+          <ScrollView style={styles.modalScroll}>
+            {selected && (
+              <>
+                {selected.result.fatalErrors > 0 && (
+                  <View style={styles.alertBox}>
+                    <Text style={styles.alertText}>⚠️ 重大ミス {selected.result.fatalErrors}件</Text>
+                  </View>
+                )}
+                {selected.result.missingProcess && (
+                  <View style={styles.alertBox}>
+                    <Text style={styles.alertText}>⚠️ 思考プロセス不足</Text>
+                  </View>
+                )}
+
+                {selected.result.feedbacks.length > 0 && (
+                  <>
+                    <Text style={styles.sectionLabel}>📌 指摘事項</Text>
+                    {selected.result.feedbacks.map((fb, i) => (
+                      <View key={i} style={[styles.feedbackCard, { borderLeftColor: TYPE_COLOR[fb.type] ?? '#999' }]}>
+                        <Text style={[styles.feedbackType, { color: TYPE_COLOR[fb.type] ?? '#999' }]}>{fb.type}</Text>
+                        <Text style={styles.feedbackPoint}>{fb.point}</Text>
+                      </View>
+                    ))}
+                  </>
+                )}
+
+                <Text style={styles.sectionLabel}>🧠 あなたの思考ステップ</Text>
+                <View style={styles.stepsCard}>
+                  <Text style={styles.stepLabel}>問題認識</Text>
+                  <Text style={styles.stepText}>{selected.result.answerSteps.issueRecognition}</Text>
+                  <Text style={styles.stepLabel}>前提</Text>
+                  <Text style={styles.stepText}>{selected.result.answerSteps.premise}</Text>
+                  <Text style={styles.stepLabel}>論理</Text>
+                  <Text style={styles.stepText}>{selected.result.answerSteps.logic}</Text>
+                  <Text style={styles.stepLabel}>結論</Text>
+                  <Text style={styles.stepText}>{selected.result.answerSteps.conclusion}</Text>
+                </View>
+
+                <Text style={styles.sectionLabel}>📖 模範解答の思考ステップ</Text>
+                <View style={styles.stepsCard}>
+                  <Text style={styles.stepLabel}>問題認識</Text>
+                  <Text style={styles.stepText}>{selected.result.modelSteps.issueRecognition}</Text>
+                  <Text style={styles.stepLabel}>前提</Text>
+                  <Text style={styles.stepText}>{selected.result.modelSteps.premise}</Text>
+                  <Text style={styles.stepLabel}>論理</Text>
+                  <Text style={styles.stepText}>{selected.result.modelSteps.logic}</Text>
+                  <Text style={styles.stepLabel}>結論</Text>
+                  <Text style={styles.stepText}>{selected.result.modelSteps.conclusion}</Text>
+                </View>
+
+                {selected.result.textbookRef && (
+                  <>
+                    <Text style={styles.sectionLabel}>📚 教科書参照</Text>
+                    <Text style={styles.textbookRef}>{selected.result.textbookRef}</Text>
+                  </>
+                )}
+              </>
+            )}
+          </ScrollView>
+
+          <View style={styles.modalFooter}>
+            <TouchableOpacity style={styles.closeButton} onPress={() => setSelected(null)}>
+              <Text style={styles.closeButtonText}>閉じる</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => selected && deleteItem(selected.id)}
+            >
+              <Text style={styles.deleteButtonText}>削除</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 24, backgroundColor: '#f5f5f5' },
-  title: { fontSize: 24, fontWeight: 'bold', marginBottom: 16, textAlign: 'center' },
+  wrapper: { flex: 1, backgroundColor: '#f5f5f5' },
+  title: { fontSize: 22, fontWeight: 'bold', marginTop: 16, marginBottom: 8, textAlign: 'center' },
+  tabBar: { paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
+  tab: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#D1D5DB',
+    backgroundColor: '#fff',
+  },
+  tabActive: { backgroundColor: '#7c3aed', borderColor: '#7c3aed' },
+  tabText: { fontSize: 13, fontWeight: '600', color: '#6B7280' },
+  tabTextActive: { color: '#fff' },
+  container: { padding: 16, paddingBottom: 32 },
   empty: { textAlign: 'center', color: '#999', fontSize: 15, marginTop: 40, lineHeight: 26 },
   card: {
     backgroundColor: '#fff',

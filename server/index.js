@@ -864,7 +864,7 @@ const EVAL_TOOL = {
 async function evaluateGrade(result, answerText, modelText) {
   try {
     const evalRes = await client.messages.create({
-      model: "claude-sonnet-4-5",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 500,
       tools: [EVAL_TOOL],
       tool_choice: { type: "tool", name: "evaluate_grade" },
@@ -907,36 +907,37 @@ app.post("/grade-compare", async (req, res) => {
       return res.status(400).json({ error: "答案画像が必要です" });
     }
 
-    // 答案OCR
-    const answerOcrRes = await client.messages.create({
-      model: "claude-opus-4-5",
-      max_tokens: 2048,
-      messages: [{
-        role: "user",
-        content: [
-          { type: "image", source: { type: "base64", media_type: detectMediaType(answerImage), data: answerImage } },
-          { type: "text", text: HANDWRITING_OCR_PROMPT }
-        ]
-      }]
-    });
-    const answerText = answerOcrRes.content[0].text;
-
-    // 模範解答テキスト取得
-    let modelText = modelAnswerText || "";
-    if (!modelText && modelAnswerImage) {
-      const modelOcrRes = await client.messages.create({
-        model: "claude-opus-4-5",
+    // OCR を並列実行（答案 + 模範解答画像）
+    const needsModelOcr = !modelAnswerText && !!modelAnswerImage;
+    const ocrPromises = [
+      client.messages.create({
+        model: "claude-sonnet-4-6",
         max_tokens: 2048,
         messages: [{
           role: "user",
           content: [
-            { type: "image", source: { type: "base64", media_type: detectMediaType(modelAnswerImage), data: modelAnswerImage } },
-            { type: "text", text: MODEL_ANSWER_OCR_PROMPT }
+            { type: "image", source: { type: "base64", media_type: detectMediaType(answerImage), data: answerImage } },
+            { type: "text", text: HANDWRITING_OCR_PROMPT }
           ]
         }]
-      });
-      modelText = modelOcrRes.content[0].text;
-    }
+      }),
+      needsModelOcr
+        ? client.messages.create({
+            model: "claude-sonnet-4-6",
+            max_tokens: 2048,
+            messages: [{
+              role: "user",
+              content: [
+                { type: "image", source: { type: "base64", media_type: detectMediaType(modelAnswerImage), data: modelAnswerImage } },
+                { type: "text", text: MODEL_ANSWER_OCR_PROMPT }
+              ]
+            }]
+          })
+        : Promise.resolve(null),
+    ];
+    const [answerOcrRes, modelOcrRes] = await Promise.all(ocrPromises);
+    const answerText = answerOcrRes.content[0].text;
+    const modelText = modelAnswerText || modelOcrRes?.content[0].text || "";
 
     if (!modelText) {
       return res.status(400).json({ error: "模範解答（画像またはテキスト）が必要です" });
@@ -997,15 +998,35 @@ app.post("/grade-compare", async (req, res) => {
       ? `\n\n【過去の改善指示（必ず反映すること）】\n${promptTips.slice(-3).map((t, i) => `${i + 1}. ${t}`).join("\n")}`
       : "";
 
-    // 評価ループ（最大2リトライ = 計3回）
-    const MAX_RETRIES = 2;
+    // RAGコンテキスト取得を採点と並列で開始（採点結果を待たずに開始可能）
+    const ragContextPromise = (supabase && openaiClient)
+      ? (async () => {
+          try {
+            const issuesText = await extractIssues(answerText, modelText, subject);
+            console.log(`[rag] extracted issues: ${issuesText}`);
+            const embedding = await getEmbedding(issuesText);
+            const hits = await vectorSearch(embedding, subject, 5);
+            if (hits.length > 0) {
+              return hits
+                .map((h, i) => `[${i + 1}] ${h.textbook_id || "教科書"} p.${h.page_num || "?"}: ${h.content.slice(0, 500)}`)
+                .join("\n");
+            }
+          } catch (pgErr) {
+            console.warn("[rag] pgvector search failed:", pgErr.message);
+          }
+          return null;
+        })()
+      : Promise.resolve(null);
+
+    // 評価ループ（最大1リトライ = 計2回）
+    const MAX_RETRIES = 1;
     let result, evalScore = 70, evalImprovements = [], retryCount = 0;
 
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       let analysisRes;
       try {
         analysisRes = await client.messages.create({
-          model: "claude-opus-4-5",
+          model: "claude-sonnet-4-6",
           max_tokens: 4096,
           tools: [GRADE_TOOL],
           tool_choice: { type: "tool", name: "grade_answer" },
@@ -1064,18 +1085,22 @@ ${modelText}
       retryCount = attempt;
       console.log(`[grade-compare] attempt ${attempt + 1} score:`, result.score, "feedbacks:", result.feedbacks.length);
 
-      // 品質評価
-      const evalResult = await evaluateGrade(result, answerText, modelText);
-      evalScore = evalResult.score;
-      evalImprovements = evalResult.improvements;
-      console.log(`[grade-compare] attempt ${attempt + 1} evalScore:`, evalScore);
-
-      if (evalScore >= 60) {
-        console.log(`[grade-compare] quality OK (evalScore=${evalScore}), proceeding`);
-        break;
-      }
+      // 品質評価（最後の試行ではスキップ）
       if (attempt < MAX_RETRIES) {
+        const evalResult = await evaluateGrade(result, answerText, modelText);
+        evalScore = evalResult.score;
+        evalImprovements = evalResult.improvements;
+        console.log(`[grade-compare] attempt ${attempt + 1} evalScore:`, evalScore);
+
+        if (evalScore >= 60) {
+          console.log(`[grade-compare] quality OK (evalScore=${evalScore}), proceeding`);
+          retryCount = attempt;
+          break;
+        }
         console.log(`[grade-compare] evalScore=${evalScore} < 60, retry ${attempt + 2}/${MAX_RETRIES + 1}`);
+      } else {
+        retryCount = attempt;
+        break;
       }
     }
 
@@ -1099,27 +1124,13 @@ ${modelText}
       }
     }
 
-    // 教科書RAG — pgvector セマンティック検索 → MongoDB regex → textbooks.json フォールバック
+    // 教科書RAG — 並列取得済みの pgvector 結果 → MongoDB regex → textbooks.json フォールバック
     if (result.feedbacks && result.feedbacks.length > 0) {
       try {
-        let ragContext = "";
-
-        // pgvector: 論点抽出 → 埋め込み → 上位5件
-        if (supabase && openaiClient) {
-          try {
-            const issuesText = await extractIssues(answerText, modelText, subject);
-            console.log(`[rag] extracted issues: ${issuesText}`);
-            const embedding = await getEmbedding(issuesText);
-            const hits = await vectorSearch(embedding, subject, 5);
-            if (hits.length > 0) {
-              ragContext = hits
-                .map((h, i) => `[${i + 1}] ${h.textbook_id || "教科書"} p.${h.page_num || "?"}: ${h.content.slice(0, 500)}`)
-                .join("\n");
-              console.log(`[rag] pgvector hits=${hits.length} subject=${subject || "all"}`);
-            }
-          } catch (pgErr) {
-            console.warn("[rag] pgvector search failed, falling back to MongoDB:", pgErr.message);
-          }
+        // pgvector: 並列取得済みの結果を受け取る
+        let ragContext = await ragContextPromise;
+        if (ragContext) {
+          console.log(`[rag] pgvector context ready`);
         }
 
         // キーワード抽出（MongoDB・JSONフォールバック共用）
@@ -1193,7 +1204,7 @@ ${modelText}
 
         if (ragContext) {
           const ragRes = await client.messages.create({
-            model: "claude-opus-4-5",
+            model: "claude-haiku-4-5-20251001",
             max_tokens: 400,
             messages: [{
               role: "user",

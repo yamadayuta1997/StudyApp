@@ -222,6 +222,7 @@ export default function CompareScreen() {
     b64Setter: (b64: string) => void,
     label: string,
   ) => {
+    if (Platform.OS === 'web') { Alert.alert('Webブラウザではカメラを使用できません。画像を選択してください。'); return; }
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) { Alert.alert('カメラ権限が必要です'); return; }
     const res = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', base64: true, quality: 0.7 });
@@ -459,9 +460,11 @@ export default function CompareScreen() {
         {/* ① 自分の答案 */}
         <Text style={styles.label}>① 自分の答案</Text>
         <View style={styles.row}>
-          <TouchableOpacity style={styles.btnSecondary} onPress={() => takePhoto(setAnswerUri, setAnswerB64, 'answer')}>
-            <Text style={styles.btnSecondaryText}>📷 撮影</Text>
-          </TouchableOpacity>
+          {Platform.OS !== 'web' && (
+            <TouchableOpacity style={styles.btnSecondary} onPress={() => takePhoto(setAnswerUri, setAnswerB64, 'answer')}>
+              <Text style={styles.btnSecondaryText}>📷 撮影</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[styles.btnSecondary, !answerB64 && styles.btnPrimary]}
             onPress={() => pickImage(setAnswerUri, setAnswerB64, 'answer')}
@@ -476,9 +479,11 @@ export default function CompareScreen() {
         {/* ② 模範解答 */}
         <Text style={styles.label}>② 模範解答</Text>
         <View style={styles.row}>
-          <TouchableOpacity style={styles.btnSecondary} onPress={() => takePhoto(setModelUri, setModelB64, 'model')}>
-            <Text style={styles.btnSecondaryText}>📷 撮影</Text>
-          </TouchableOpacity>
+          {Platform.OS !== 'web' && (
+            <TouchableOpacity style={styles.btnSecondary} onPress={() => takePhoto(setModelUri, setModelB64, 'model')}>
+              <Text style={styles.btnSecondaryText}>📷 撮影</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[styles.btnSecondary, answerB64 && !modelB64 && styles.btnPrimary]}
             onPress={() => pickImage(setModelUri, setModelB64, 'model')}

@@ -150,13 +150,12 @@ export default function AnswerScreen() {
   const handleImagePick = async (useCamera: boolean) => {
     let pickerResult;
     if (useCamera) {
+      if (Platform.OS === "web") { setError("Webブラウザではカメラを使用できません。ギャラリーから画像を選択してください。"); return; }
       try {
-        if (Platform.OS !== "web") {
-          const perm = await ImagePicker.requestCameraPermissionsAsync();
-          if (!perm.granted) {
-            setError("カメラの使用許可が必要です。設定アプリ → StudyApp → カメラ をオンにしてください。");
-            return;
-          }
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          setError("カメラの使用許可が必要です。設定アプリ → StudyApp → カメラ をオンにしてください。");
+          return;
         }
         pickerResult = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.8 });
       } catch (e: any) {
@@ -362,9 +361,11 @@ export default function AnswerScreen() {
         <TouchableOpacity style={[styles.imageButton, { backgroundColor: "#f5f3ff", borderColor: "#c4b5fd" }]} onPress={() => handleImagePick(false)} disabled={imageLoading}>
           {imageLoading ? <ActivityIndicator size="small" color="#7c3aed" /> : <Text style={[styles.imageButtonText, { color: "#7c3aed" }]}>🖼 ギャラリー</Text>}
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.imageButton, { backgroundColor: "#fdf4ff", borderColor: "#e879f9" }]} onPress={() => handleImagePick(true)} disabled={imageLoading}>
-          {imageLoading ? <ActivityIndicator size="small" color="#a21caf" /> : <Text style={[styles.imageButtonText, { color: "#a21caf" }]}>📸 カメラ</Text>}
-        </TouchableOpacity>
+        {Platform.OS !== "web" && (
+          <TouchableOpacity style={[styles.imageButton, { backgroundColor: "#fdf4ff", borderColor: "#e879f9" }]} onPress={() => handleImagePick(true)} disabled={imageLoading}>
+            {imageLoading ? <ActivityIndicator size="small" color="#a21caf" /> : <Text style={[styles.imageButtonText, { color: "#a21caf" }]}>📸 カメラ</Text>}
+          </TouchableOpacity>
+        )}
       </View>
       {imagePreviewUri && (
         <Image source={{ uri: imagePreviewUri }} style={styles.imagePreview} resizeMode="contain" />

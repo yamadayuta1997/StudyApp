@@ -66,11 +66,13 @@ const STORAGE_KEY = 'compare_history';
 const MAX_HISTORY = 20;
 
 
+const MAX_IMAGES = 10;
+
 export default function CompareScreen() {
-  const [answerUri, setAnswerUri] = useState<string | null>(null);
-  const [answerB64, setAnswerB64] = useState<string | null>(null);
-  const [modelUri, setModelUri] = useState<string | null>(null);
-  const [modelB64, setModelB64] = useState<string | null>(null);
+  const [answerUris, setAnswerUris] = useState<string[]>([]);
+  const [answerB64s, setAnswerB64s] = useState<string[]>([]);
+  const [modelUris, setModelUris] = useState<string[]>([]);
+  const [modelB64s, setModelB64s] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<GradeResult | null>(null);
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null);
@@ -151,7 +153,7 @@ export default function CompareScreen() {
       setLastSavedDate(latest.date);
       if (result === null) {
         setResult(latest.result);
-        if (latest.answerUri) setAnswerUri(latest.answerUri);
+        if (latest.answerUri) setAnswerUris([latest.answerUri]);
         setSaveStatus('saved');
         console.log('[compare][load] restored score:', latest.result.score, 'answerUri:', latest.answerUri ?? 'none', 'date:', latest.date);
       }
@@ -173,7 +175,7 @@ export default function CompareScreen() {
         date: new Date().toLocaleString('ja-JP'),
         subject,
         result: gradeResult,
-        answerUri: answerUri ?? undefined,
+        answerUri: answerUris[0] ?? undefined,
       };
       const updated = [...items, newItem].slice(-MAX_HISTORY);
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
@@ -197,32 +199,46 @@ export default function CompareScreen() {
     }
   };
 
-  const pickImage = async (
-    setter: (uri: string) => void,
-    b64Setter: (b64: string) => void,
+  const pickImages = async (
+    urisSetter: React.Dispatch<React.SetStateAction<string[]>>,
+    b64sSetter: React.Dispatch<React.SetStateAction<string[]>>,
+    currentCount: number,
     label: string,
   ) => {
     if (Platform.OS !== 'web') {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) { Alert.alert('フォトライブラリへのアクセス許可が必要です'); return; }
     }
-    const res = await ImagePicker.launchImageLibraryAsync({ mediaTypes: 'images', base64: true, quality: 0.7 });
-    console.log(`[compare][${label}] canceled:`, res.canceled);
-    if (!res.canceled && res.assets[0]) {
-      const asset = res.assets[0];
-      console.log(`[compare][${label}] uri:`, asset.uri, 'b64 len:', asset.base64?.length ?? 'undef');
-      if (!asset.base64) { Alert.alert('画像の読み込みに失敗しました', 'base64データを取得できませんでした'); return; }
-      setter(asset.uri);
-      b64Setter(asset.base64);
+    const remaining = MAX_IMAGES - currentCount;
+    if (remaining <= 0) { Alert.alert(`最大${MAX_IMAGES}枚まで選択できます`); return; }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'images',
+      base64: true,
+      quality: 0.7,
+      allowsMultipleSelection: true,
+      selectionLimit: remaining,
+    });
+    console.log(`[compare][${label}] canceled:`, res.canceled, 'assets:', res.assets?.length ?? 0);
+    if (!res.canceled && res.assets.length > 0) {
+      const validAssets = res.assets.filter(a => !!a.base64);
+      if (validAssets.length < res.assets.length) {
+        Alert.alert('一部の画像を読み込めませんでした', 'base64データを取得できなかった画像はスキップされました');
+      }
+      if (validAssets.length === 0) return;
+      urisSetter(prev => [...prev, ...validAssets.map(a => a.uri)].slice(0, MAX_IMAGES));
+      b64sSetter(prev => [...prev, ...validAssets.map(a => a.base64!)].slice(0, MAX_IMAGES));
+      console.log(`[compare][${label}] added ${validAssets.length} images`);
     }
   };
 
   const takePhoto = async (
-    setter: (uri: string) => void,
-    b64Setter: (b64: string) => void,
+    urisSetter: React.Dispatch<React.SetStateAction<string[]>>,
+    b64sSetter: React.Dispatch<React.SetStateAction<string[]>>,
+    currentCount: number,
     label: string,
   ) => {
     if (Platform.OS === 'web') { Alert.alert('Webブラウザではカメラを使用できません。画像を選択してください。'); return; }
+    if (currentCount >= MAX_IMAGES) { Alert.alert(`最大${MAX_IMAGES}枚まで選択できます`); return; }
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) { Alert.alert('カメラ権限が必要です'); return; }
     const res = await ImagePicker.launchCameraAsync({ mediaTypes: 'images', base64: true, quality: 0.7 });
@@ -231,13 +247,22 @@ export default function CompareScreen() {
       const asset = res.assets[0];
       console.log(`[compare][${label}] uri:`, asset.uri, 'b64 len:', asset.base64?.length ?? 'undef');
       if (!asset.base64) { Alert.alert('画像の読み込みに失敗しました', 'base64データを取得できませんでした'); return; }
-      setter(asset.uri);
-      b64Setter(asset.base64);
+      urisSetter(prev => [...prev, asset.uri].slice(0, MAX_IMAGES));
+      b64sSetter(prev => [...prev, asset.base64!].slice(0, MAX_IMAGES));
     }
   };
 
+  const removeImage = (
+    index: number,
+    urisSetter: React.Dispatch<React.SetStateAction<string[]>>,
+    b64sSetter: React.Dispatch<React.SetStateAction<string[]>>,
+  ) => {
+    urisSetter(prev => prev.filter((_, i) => i !== index));
+    b64sSetter(prev => prev.filter((_, i) => i !== index));
+  };
+
   const analyze = async () => {
-    if (!answerB64 || !modelB64) { Alert.alert('答案と模範解答の両方が必要です'); return; }
+    if (answerB64s.length === 0 || modelB64s.length === 0) { Alert.alert('答案と模範解答の両方が必要です'); return; }
 
     // 利用回数チェック
     const usage = await checkAndIncrement();
@@ -249,7 +274,7 @@ export default function CompareScreen() {
     }
     console.log('[compare][analyze] usage count:', usage.count, 'remaining:', usage.remaining);
 
-    console.log('[compare][analyze] b64 len answer:', answerB64.length, 'model:', modelB64.length, 'promptTips:', promptTips.length);
+    console.log('[compare][analyze] answerImages:', answerB64s.length, 'modelImages:', modelB64s.length, 'promptTips:', promptTips.length);
     setLoading(true);
     setResult(null);
     setEvalScore(null);
@@ -259,7 +284,7 @@ export default function CompareScreen() {
       const resp = await fetch(`${SERVER}/grade-compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answerImage: answerB64, modelAnswerImage: modelB64, promptTips, deviceId }),
+        body: JSON.stringify({ answerImages: answerB64s, modelAnswerImages: modelB64s, promptTips, deviceId }),
       });
       console.log('[compare][analyze] status:', resp.status);
       const data = await resp.json();
@@ -290,9 +315,14 @@ export default function CompareScreen() {
     }
   };
 
-  // 答案画像 — resultあり→オーバーレイ付き / なし→プレーン
-  const renderAnswerImage = () => {
-    if (!answerUri) {
+  const renderImageStrip = (
+    uris: string[],
+    urisSetter: React.Dispatch<React.SetStateAction<string[]>>,
+    b64sSetter: React.Dispatch<React.SetStateAction<string[]>>,
+    label: string,
+    withOverlay?: boolean,
+  ) => {
+    if (uris.length === 0) {
       return (
         <View style={styles.placeholder}>
           <Text style={styles.placeholderText}>画像を選択してください</Text>
@@ -301,36 +331,50 @@ export default function CompareScreen() {
     }
     const feedbacks = result?.feedbacks ?? [];
     return (
-      <View style={styles.imageContainer}>
-        <Image source={{ uri: answerUri }} style={styles.fullImage} resizeMode="contain" />
-        {result !== null && feedbacks.length > 0 && showOverlay && (
-          <View style={styles.feedbackOverlay}>
-            <View style={styles.overlayHeader}>
-              <Text style={styles.overlayTitle}>📌 指摘事項</Text>
-              <View style={styles.overlayBadge}>
-                <Text style={styles.overlayBadgeText}>{feedbacks.length}件</Text>
-              </View>
+      <View>
+        {uris.map((uri, idx) => (
+          <View key={idx} style={[styles.imageContainer, { marginBottom: idx < uris.length - 1 ? 6 : 0 }]}>
+            <Image source={{ uri }} style={styles.fullImage} resizeMode="contain" />
+            <View style={styles.pageIndexBadge}>
+              <Text style={styles.pageIndexText}>{idx + 1}/{uris.length}</Text>
             </View>
-            {feedbacks.map((fb, i) => (
-              <TouchableOpacity
-                key={i}
-                style={styles.overlayRow}
-                activeOpacity={0.7}
-                onPress={() => {
-                  console.log('[compare][modal] open feedback:', fb.type, 'priority:', fb.priority);
-                  setSelectedFeedback(fb);
-                }}
-              >
-                <View style={[styles.overlayDot, { backgroundColor: COLOR_MAP[fb.color] || '#999' }]} />
-                <View style={styles.overlayTextWrap}>
-                  <Text style={styles.overlayType}>{TYPE_ICON[fb.type] || '•'} {fb.type}</Text>
-                  <Text style={styles.overlayPoint} numberOfLines={2}>{fb.point}</Text>
+            <TouchableOpacity
+              style={styles.removeImageBtn}
+              onPress={() => removeImage(idx, urisSetter, b64sSetter)}
+              hitSlop={8}
+            >
+              <Text style={styles.removeImageText}>✕</Text>
+            </TouchableOpacity>
+            {withOverlay && idx === 0 && result !== null && feedbacks.length > 0 && showOverlay && (
+              <View style={styles.feedbackOverlay}>
+                <View style={styles.overlayHeader}>
+                  <Text style={styles.overlayTitle}>📌 指摘事項</Text>
+                  <View style={styles.overlayBadge}>
+                    <Text style={styles.overlayBadgeText}>{feedbacks.length}件</Text>
+                  </View>
                 </View>
-                <Text style={styles.overlayChevron}>›</Text>
-              </TouchableOpacity>
-            ))}
+                {feedbacks.map((fb, i) => (
+                  <TouchableOpacity
+                    key={i}
+                    style={styles.overlayRow}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      console.log('[compare][modal] open feedback:', fb.type, 'priority:', fb.priority);
+                      setSelectedFeedback(fb);
+                    }}
+                  >
+                    <View style={[styles.overlayDot, { backgroundColor: COLOR_MAP[fb.color] || '#999' }]} />
+                    <View style={styles.overlayTextWrap}>
+                      <Text style={styles.overlayType}>{TYPE_ICON[fb.type] || '•'} {fb.type}</Text>
+                      <Text style={styles.overlayPoint} numberOfLines={2}>{fb.point}</Text>
+                    </View>
+                    <Text style={styles.overlayChevron}>›</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
-        )}
+        ))}
       </View>
     );
   };
@@ -396,7 +440,7 @@ export default function CompareScreen() {
 
         {/* ステップインジケーター */}
         {(() => {
-          const step = !answerB64 ? 0 : !modelB64 ? 1 : result === null ? 2 : 3;
+          const step = answerB64s.length === 0 ? 0 : modelB64s.length === 0 ? 1 : result === null ? 2 : 3;
           const hints = [
             '① 自分の答案を選んでください',
             '② 模範解答を選んでください',
@@ -458,48 +502,52 @@ export default function CompareScreen() {
         )}
 
         {/* ① 自分の答案 */}
-        <Text style={styles.label}>① 自分の答案</Text>
+        <View style={styles.labelRow}>
+          <Text style={styles.label}>① 自分の答案</Text>
+          {answerUris.length > 0 && (
+            <Text style={styles.imageCountBadge}>{answerUris.length}/{MAX_IMAGES}枚</Text>
+          )}
+        </View>
         <View style={styles.row}>
           {Platform.OS !== 'web' && (
-            <TouchableOpacity style={styles.btnSecondary} onPress={() => takePhoto(setAnswerUri, setAnswerB64, 'answer')}>
+            <TouchableOpacity style={styles.btnSecondary} onPress={() => takePhoto(setAnswerUris, setAnswerB64s, answerUris.length, 'answer')}>
               <Text style={styles.btnSecondaryText}>📷 撮影</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity
-            style={[styles.btnSecondary, !answerB64 && styles.btnPrimary]}
-            onPress={() => pickImage(setAnswerUri, setAnswerB64, 'answer')}
+            style={[styles.btnSecondary, answerB64s.length === 0 && styles.btnPrimary]}
+            onPress={() => pickImages(setAnswerUris, setAnswerB64s, answerUris.length, 'answer')}
           >
-            <Text style={[styles.btnSecondaryText, !answerB64 && styles.btnPrimaryText]}>
-              {answerB64 ? '🖼️ 選び直す' : '🖼️ 選択'}
+            <Text style={[styles.btnSecondaryText, answerB64s.length === 0 && styles.btnPrimaryText]}>
+              {answerB64s.length > 0 ? '🖼️ 追加選択' : '🖼️ 選択'}
             </Text>
           </TouchableOpacity>
         </View>
-        {renderAnswerImage()}
+        {renderImageStrip(answerUris, setAnswerUris, setAnswerB64s, 'answer', true)}
 
         {/* ② 模範解答 */}
-        <Text style={styles.label}>② 模範解答</Text>
+        <View style={styles.labelRow}>
+          <Text style={styles.label}>② 模範解答</Text>
+          {modelUris.length > 0 && (
+            <Text style={styles.imageCountBadge}>{modelUris.length}/{MAX_IMAGES}枚</Text>
+          )}
+        </View>
         <View style={styles.row}>
           {Platform.OS !== 'web' && (
-            <TouchableOpacity style={styles.btnSecondary} onPress={() => takePhoto(setModelUri, setModelB64, 'model')}>
+            <TouchableOpacity style={styles.btnSecondary} onPress={() => takePhoto(setModelUris, setModelB64s, modelUris.length, 'model')}>
               <Text style={styles.btnSecondaryText}>📷 撮影</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity
-            style={[styles.btnSecondary, answerB64 && !modelB64 && styles.btnPrimary]}
-            onPress={() => pickImage(setModelUri, setModelB64, 'model')}
+            style={[styles.btnSecondary, answerB64s.length > 0 && modelB64s.length === 0 && styles.btnPrimary]}
+            onPress={() => pickImages(setModelUris, setModelB64s, modelUris.length, 'model')}
           >
-            <Text style={[styles.btnSecondaryText, answerB64 && !modelB64 && styles.btnPrimaryText]}>
-              {modelB64 ? '🖼️ 選び直す' : '🖼️ 選択'}
+            <Text style={[styles.btnSecondaryText, answerB64s.length > 0 && modelB64s.length === 0 && styles.btnPrimaryText]}>
+              {modelB64s.length > 0 ? '🖼️ 追加選択' : '🖼️ 選択'}
             </Text>
           </TouchableOpacity>
         </View>
-        {modelUri ? (
-          <Image source={{ uri: modelUri }} style={styles.preview} resizeMode="contain" />
-        ) : (
-          <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>画像を選択してください</Text>
-          </View>
-        )}
+        {renderImageStrip(modelUris, setModelUris, setModelB64s, 'model')}
 
         {/* プライマリ CTA: 分析ボタン（両画像揃ったら強調） */}
         {limitReached && !isDev ? (
@@ -509,9 +557,9 @@ export default function CompareScreen() {
           </View>
         ) : (
           <TouchableOpacity
-            style={[styles.analyzeBtn, (!answerB64 || !modelB64 || loading) && styles.analyzeBtnDim]}
+            style={[styles.analyzeBtn, (answerB64s.length === 0 || modelB64s.length === 0 || loading) && styles.analyzeBtnDim]}
             onPress={() => setSubjectModalVisible(true)}
-            disabled={!answerB64 || !modelB64 || loading}
+            disabled={answerB64s.length === 0 || modelB64s.length === 0 || loading}
           >
             {loading ? (
               <View style={styles.analyzeBtnInner}>
@@ -687,7 +735,9 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#F2F2F7' },
   container: { padding: 16, paddingBottom: 40 },
   title: { fontSize: 22, fontWeight: 'bold', marginBottom: 20, color: '#1C1C1E' },
-  label: { fontSize: 15, fontWeight: '600', color: '#3A3A3C', marginTop: 16, marginBottom: 8 },
+  labelRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 8 },
+  label: { fontSize: 15, fontWeight: '600', color: '#3A3A3C' },
+  imageCountBadge: { marginLeft: 8, fontSize: 12, fontWeight: '700', color: '#007AFF', backgroundColor: '#EFF6FF', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   row: { flexDirection: 'row', gap: 10 },
   btn: { flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#E5E5EA' },
   btnText: { fontSize: 14, color: '#007AFF' },
@@ -702,6 +752,18 @@ const styles = StyleSheet.create({
     minHeight: 180,
   },
   fullImage: { width: '100%', height: 220 },
+  pageIndexBadge: {
+    position: 'absolute', top: 8, left: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 10,
+    paddingHorizontal: 8, paddingVertical: 3,
+  },
+  pageIndexText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  removeImageBtn: {
+    position: 'absolute', top: 8, right: 8,
+    backgroundColor: 'rgba(255,59,48,0.85)', borderRadius: 12,
+    width: 24, height: 24, alignItems: 'center', justifyContent: 'center',
+  },
+  removeImageText: { color: '#fff', fontSize: 13, fontWeight: '700', lineHeight: 16 },
   feedbackOverlay: {
     position: 'absolute',
     bottom: 0,

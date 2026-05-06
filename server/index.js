@@ -903,35 +903,41 @@ app.post("/grade-compare", async (req, res) => {
   try {
     const { answerImage, modelAnswerImage, modelAnswerText, subject, promptTips, deviceId } = req.body;
 
-    if (!answerImage) {
+    // 複数ページ対応: 配列優先、単一画像は後方互換
+    const answerImages = Array.isArray(req.body.answerImages) && req.body.answerImages.length > 0
+      ? req.body.answerImages
+      : answerImage ? [answerImage] : [];
+    const modelAnswerImages = Array.isArray(req.body.modelAnswerImages) && req.body.modelAnswerImages.length > 0
+      ? req.body.modelAnswerImages
+      : modelAnswerImage ? [modelAnswerImage] : [];
+
+    if (answerImages.length === 0) {
       return res.status(400).json({ error: "答案画像が必要です" });
     }
 
-    // OCR を並列実行（答案 + 模範解答画像）
-    const needsModelOcr = !modelAnswerText && !!modelAnswerImage;
+    // OCR を並列実行（複数ページを1リクエストでまとめて送信）
+    const buildOcrContent = (images, prompt) => [
+      ...images.map((b64) => ({
+        type: "image",
+        source: { type: "base64", media_type: detectMediaType(b64), data: b64 },
+      })),
+      { type: "text", text: images.length > 1
+        ? `${prompt}\n\n※画像は${images.length}ページあります。ページ順に「【1ページ目】\n...\n【2ページ目】\n...」と区切って書き起こしてください。`
+        : prompt },
+    ];
+
+    const needsModelOcr = !modelAnswerText && modelAnswerImages.length > 0;
     const ocrPromises = [
       client.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 2048,
-        messages: [{
-          role: "user",
-          content: [
-            { type: "image", source: { type: "base64", media_type: detectMediaType(answerImage), data: answerImage } },
-            { type: "text", text: HANDWRITING_OCR_PROMPT }
-          ]
-        }]
+        max_tokens: 4096,
+        messages: [{ role: "user", content: buildOcrContent(answerImages, HANDWRITING_OCR_PROMPT) }],
       }),
       needsModelOcr
         ? client.messages.create({
             model: "claude-sonnet-4-6",
-            max_tokens: 2048,
-            messages: [{
-              role: "user",
-              content: [
-                { type: "image", source: { type: "base64", media_type: detectMediaType(modelAnswerImage), data: modelAnswerImage } },
-                { type: "text", text: MODEL_ANSWER_OCR_PROMPT }
-              ]
-            }]
+            max_tokens: 4096,
+            messages: [{ role: "user", content: buildOcrContent(modelAnswerImages, MODEL_ANSWER_OCR_PROMPT) }],
           })
         : Promise.resolve(null),
     ];

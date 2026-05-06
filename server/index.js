@@ -458,37 +458,41 @@ async function processTextbookBackground(jobId, bookId, bookName, subject, pages
       }
     }
 
-    // Phase 4: 並列埋め込み生成 → バッチ挿入
+    // Phase 4: 並列埋め込み生成 → Supabase バッチ挿入 + MongoDB Chunk embedding 更新
     if (supabase && openaiClient) {
       updateJob({ phase: "embedding", progress: 0, total: allSemanticChunks.length });
       await supabase.from("topics").delete().eq("textbook_id", bookId);
       const CONCURRENCY = 5;
       const rows = [];
+      const mongoEmbeddings = [];
       for (let i = 0; i < allSemanticChunks.length; i += CONCURRENCY) {
         const batch = allSemanticChunks.slice(i, i + CONCURRENCY);
-        const batchRows = await Promise.all(
+        const batchResults = await Promise.all(
           batch.map(async (sc) => {
             if (!sc.content) return null;
             try {
               const embedText = sc.topicName && sc.topicName !== subject
                 ? `${sc.topicName}: ${sc.content}` : sc.content;
               const embedding = await getEmbedding(embedText.slice(0, 1000));
-              return {
-                subject,
-                content: sc.content.slice(0, 2000),
-                embedding,
-                textbook_id: bookId,
-                page_num: sc.pageNum,
-                topic_name: sc.topicName || null,
-                importance: sc.importance || 1,
-              };
+              return { sc, embedding };
             } catch (e) {
               console.warn(`[topics] embed p.${sc.pageNum} chunk ${sc.chunkIndex}:`, e.message);
               return null;
             }
           })
         );
-        rows.push(...batchRows.filter(Boolean));
+        for (const r of batchResults.filter(Boolean)) {
+          rows.push({
+            subject,
+            content: r.sc.content.slice(0, 2000),
+            embedding: r.embedding,
+            textbook_id: bookId,
+            page_num: r.sc.pageNum,
+            topic_name: r.sc.topicName || null,
+            importance: r.sc.importance || 1,
+          });
+          mongoEmbeddings.push({ chunkIndex: r.sc.chunkIndex, pageNum: r.sc.pageNum, embedding: r.embedding });
+        }
         updateJob({ progress: Math.min(i + CONCURRENCY, allSemanticChunks.length) });
       }
       const INSERT_BATCH = 100;
@@ -506,6 +510,22 @@ async function processTextbookBackground(jobId, bookId, bookName, subject, pages
         }
       }
       console.log(`[topics] embedded ${rows.length}/${allSemanticChunks.length} chunks for ${bookId}`);
+
+      // MongoDB Chunk に embedding を紐付け保存（topics.id との相関は textbookId + pageNum + chunkIndex で維持）
+      if (isMongoEnabled && Chunk && mongoEmbeddings.length > 0) {
+        try {
+          const bulkOps = mongoEmbeddings.map(({ chunkIndex, pageNum, embedding }) => ({
+            updateOne: {
+              filter: { textbookId: bookId, pageNum, chunkIndex },
+              update: { $set: { embedding } },
+            },
+          }));
+          await Chunk.bulkWrite(bulkOps);
+          console.log(`[mongodb] updated ${bulkOps.length} chunk embeddings for ${bookId}`);
+        } catch (mongoErr) {
+          console.warn("[mongodb] chunk embedding update (non-fatal):", mongoErr.message);
+        }
+      }
     }
 
     updateJob({ status: "done", phase: "done", progress: allSemanticChunks.length });
@@ -654,13 +674,30 @@ app.post("/grade", async (req, res) => {
       return res.status(400).json({ error: "question・answer・subject は必須です。" });
     }
 
-    // Build textbook context
+    // Build textbook context — pgvector semantic search first, bookIds cache fallback
     let bookContext = "";
-    for (const bookId of bookIds) {
-      const book = textbookCache.get(bookId);
-      if (book) {
-        for (const page of book.pages) {
-          bookContext += `【参考教材】\n${book.bookName} p.${page.pageNum}:\n${buildPageContent(page)}\n\n`;
+    if (supabase && openaiClient) {
+      try {
+        const queryText = `${question} ${answer}`.slice(0, 1000);
+        const embedding = await getEmbedding(queryText);
+        const hits = await vectorSearch(embedding, subject, 5);
+        if (hits.length > 0) {
+          bookContext = hits
+            .map(h => `【参考教材】\n${h.textbook_id || "教科書"} p.${h.page_num || "?"}: ${h.content}`)
+            .join("\n\n");
+          console.log(`[grade] pgvector RAG hits=${hits.length} subject=${subject}`);
+        }
+      } catch (pgErr) {
+        console.warn("[grade] pgvector search failed, falling back:", pgErr.message);
+      }
+    }
+    if (!bookContext) {
+      for (const bookId of bookIds) {
+        const book = textbookCache.get(bookId);
+        if (book) {
+          for (const page of book.pages) {
+            bookContext += `【参考教材】\n${book.bookName} p.${page.pageNum}:\n${buildPageContent(page)}\n\n`;
+          }
         }
       }
     }

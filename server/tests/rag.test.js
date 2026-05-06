@@ -33,7 +33,9 @@ jest.mock('../supabase', () => ({
 process.env.OPENAI_API_KEY    = 'test-openai-key';
 process.env.ANTHROPIC_API_KEY = 'test-anthropic-key';
 
+const request = require('supertest');
 const { extractIssues, getEmbedding, splitIntoSemanticChunks } = require('../index');
+const app = require('../index');
 const { vectorSearch } = require('../supabase');
 
 beforeEach(() => {
@@ -223,5 +225,64 @@ describe('vectorSearch', () => {
     const result = await vectorSearch(Array(1536).fill(0.2), null, 5);
 
     expect(result).toHaveLength(1);
+  });
+});
+
+// ============================================================
+// POST /grade — pgvector セマンティック検索 (Issue #27)
+// ============================================================
+describe('POST /grade pgvector RAG', () => {
+  test('supabase + openai 設定済みのとき pgvector で上位5件を取得する', async () => {
+    const fakeEmbedding = Array(1536).fill(0.1);
+    const fakeHits = Array.from({ length: 5 }, (_, i) => ({
+      id: i + 1, subject: '財務会計論',
+      content: `チャンク${i + 1}の内容`,
+      textbook_id: '財務会計論_テスト教科書',
+      page_num: (i + 1) * 10, similarity: 0.9 - i * 0.05,
+    }));
+
+    mockEmbeddingsCreate.mockResolvedValueOnce({ data: [{ embedding: fakeEmbedding }] });
+    mockVectorSearch.mockResolvedValueOnce(fakeHits);
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [{ text: '【得点率】80%\n【論点】収益認識\n【誤答論点】なし\n【解説まとめ】テスト解説' }],
+    });
+
+    const res = await request(app)
+      .post('/grade')
+      .send({ question: '収益認識について説明せよ', answer: '答案テキスト', subject: '財務会計論', bookIds: [] });
+
+    expect(res.status).toBe(200);
+    expect(mockVectorSearch).toHaveBeenCalledWith(expect.any(Array), '財務会計論', 5);
+    expect(res.body.score).toBe(80);
+  });
+
+  test('pgvector が空を返した場合は bookIds キャッシュにフォールバックする', async () => {
+    const fakeEmbedding = Array(1536).fill(0.0);
+    mockEmbeddingsCreate.mockResolvedValueOnce({ data: [{ embedding: fakeEmbedding }] });
+    mockVectorSearch.mockResolvedValueOnce([]);
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [{ text: '【得点率】60%\n【論点】論点B\n【誤答論点】なし\n【解説まとめ】テスト' }],
+    });
+
+    const res = await request(app)
+      .post('/grade')
+      .send({ question: '問題文', answer: '答案', subject: '財務会計論', bookIds: [] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.result).toBeDefined();
+  });
+
+  test('pgvector 例外発生時は bookIds キャッシュにフォールバックして採点を完了する', async () => {
+    mockEmbeddingsCreate.mockRejectedValueOnce(new Error('embedding API error'));
+    mockMessagesCreate.mockResolvedValueOnce({
+      content: [{ text: '【得点率】55%\n【論点】論点C\n【誤答論点】なし\n【解説まとめ】テスト' }],
+    });
+
+    const res = await request(app)
+      .post('/grade')
+      .send({ question: '問題文', answer: '答案', subject: '財務会計論', bookIds: [] });
+
+    expect(res.status).toBe(200);
+    expect(res.body.result).toContain('【得点率】55%');
   });
 });

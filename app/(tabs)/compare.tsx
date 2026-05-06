@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
+import { moveItem } from '@/utils/imageReorder';
 import { DAILY_LIMIT, checkAndIncrement, getDeviceId, getUsageCount, isDevDevice } from '@/utils/usageLimit';
 import { isCloseEnough, jaccardSim } from '@/utils/jaccardSim';
 import {
@@ -305,9 +306,9 @@ const [usageCount, setUsageCount] = useState(0);
 
   const renderImageStrip = (
     uris: string[],
+    b64s: string[],
     urisSetter: React.Dispatch<React.SetStateAction<string[]>>,
     b64sSetter: React.Dispatch<React.SetStateAction<string[]>>,
-    label: string,
     withOverlay?: boolean,
   ) => {
     if (uris.length === 0) {
@@ -321,7 +322,7 @@ const [usageCount, setUsageCount] = useState(0);
     return (
       <View>
         {uris.map((uri, idx) => (
-          <View key={idx} style={[styles.imageContainer, { marginBottom: idx < uris.length - 1 ? 6 : 0 }]}>
+          <View key={uri} style={[styles.imageContainer, { marginBottom: idx < uris.length - 1 ? 6 : 0 }]}>
             <Image source={{ uri }} style={styles.fullImage} resizeMode="contain" />
             <View style={styles.pageIndexBadge}>
               <Text style={styles.pageIndexText}>{idx + 1}/{uris.length}</Text>
@@ -333,6 +334,32 @@ const [usageCount, setUsageCount] = useState(0);
             >
               <Text style={styles.removeImageText}>✕</Text>
             </TouchableOpacity>
+            {uris.length > 1 && (
+              <View style={styles.reorderBtns}>
+                <TouchableOpacity
+                  style={[styles.reorderBtn, idx === 0 && styles.reorderBtnDisabled]}
+                  onPress={() => {
+                    urisSetter(moveItem(uris, idx, 'up'));
+                    b64sSetter(moveItem(b64s, idx, 'up'));
+                  }}
+                  disabled={idx === 0}
+                  hitSlop={4}
+                >
+                  <Text style={styles.reorderBtnText}>▲</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.reorderBtn, idx === uris.length - 1 && styles.reorderBtnDisabled]}
+                  onPress={() => {
+                    urisSetter(moveItem(uris, idx, 'down'));
+                    b64sSetter(moveItem(b64s, idx, 'down'));
+                  }}
+                  disabled={idx === uris.length - 1}
+                  hitSlop={4}
+                >
+                  <Text style={styles.reorderBtnText}>▼</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             {withOverlay && idx === 0 && result !== null && feedbacks.length > 0 && showOverlay && (
               <View style={styles.feedbackOverlay}>
                 <View style={styles.overlayHeader}>
@@ -494,7 +521,7 @@ const [usageCount, setUsageCount] = useState(0);
             </Text>
           </TouchableOpacity>
         </View>
-        {renderImageStrip(answerUris, setAnswerUris, setAnswerB64s, 'answer', true)}
+        {renderImageStrip(answerUris, answerB64s, setAnswerUris, setAnswerB64s, true)}
 
         {/* ② 模範解答 */}
         <View style={styles.labelRow}>
@@ -518,7 +545,7 @@ const [usageCount, setUsageCount] = useState(0);
             </Text>
           </TouchableOpacity>
         </View>
-        {renderImageStrip(modelUris, setModelUris, setModelB64s, 'model')}
+        {renderImageStrip(modelUris, modelB64s, setModelUris, setModelB64s)}
 
         {/* プライマリ CTA: 分析ボタン（両画像揃ったら強調） */}
         {limitReached && !isDev ? (
@@ -953,6 +980,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
   },
+
+  /* 並び替えボタン */
+  reorderBtns: { position: 'absolute', top: 8, left: 8, flexDirection: 'column', gap: 4 },
+  reorderBtn: { backgroundColor: 'rgba(0,122,255,0.85)', width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  reorderBtnDisabled: { backgroundColor: 'rgba(0,0,0,0.25)' },
+  reorderBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' as const, lineHeight: 14 },
 
   /* 科目選択モーダル */
   subjectModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', padding: 16 },

@@ -17,6 +17,7 @@ import {
   useWindowDimensions,
   View,
 } from "react-native";
+import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
 import Markdown from "react-native-markdown-display";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -553,19 +554,34 @@ export default function AnswerScreen() {
           )}
         </View>
         {questionImages.length > 0 && (
-          <View style={styles.thumbnailRow}>
-            {questionImages.map((img, i) => (
-              <View key={i} style={styles.thumbnailContainer}>
-                <Image source={{ uri: img.uri }} style={styles.thumbnail} />
-                <TouchableOpacity
-                  style={styles.thumbnailDelete}
-                  onPress={() => setQuestionImages(prev => prev.filter((_, idx) => idx !== i))}
-                >
-                  <Text style={styles.thumbnailDeleteText}>✕</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
+          <DraggableFlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={questionImages}
+            keyExtractor={item => item.uri}
+            onDragEnd={({ data }) => setQuestionImages(data)}
+            containerStyle={styles.thumbnailRow}
+            renderItem={({ item, drag, isActive }) => (
+              <ScaleDecorator>
+                <View style={[styles.thumbnailContainer, isActive && styles.thumbnailDragging]}>
+                  <TouchableOpacity onLongPress={drag} delayLongPress={150} activeOpacity={0.8}>
+                    <Image source={{ uri: item.uri }} style={styles.thumbnail} />
+                    {questionImages.length > 1 && (
+                      <View style={styles.dragHandle}>
+                        <Text style={styles.dragHandleText}>≡</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.thumbnailDelete}
+                    onPress={() => setQuestionImages(prev => prev.filter(img => img.uri !== item.uri))}
+                  >
+                    <Text style={styles.thumbnailDeleteText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScaleDecorator>
+            )}
+          />
         )}
       </View>
     </View>
@@ -631,19 +647,34 @@ export default function AnswerScreen() {
           )}
         </View>
         {answerImages.length > 0 && (
-          <View style={styles.thumbnailRow}>
-            {answerImages.map((img, i) => (
-              <View key={i} style={styles.thumbnailContainer}>
-                <Image source={{ uri: img.uri }} style={styles.thumbnail} />
-                <TouchableOpacity
-                  style={styles.thumbnailDelete}
-                  onPress={() => setAnswerImages(prev => prev.filter((_, idx) => idx !== i))}
-                >
-                  <Text style={styles.thumbnailDeleteText}>✕</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
+          <DraggableFlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={answerImages}
+            keyExtractor={item => item.uri}
+            onDragEnd={({ data }) => setAnswerImages(data)}
+            containerStyle={styles.thumbnailRow}
+            renderItem={({ item, drag, isActive }) => (
+              <ScaleDecorator>
+                <View style={[styles.thumbnailContainer, isActive && styles.thumbnailDragging]}>
+                  <TouchableOpacity onLongPress={drag} delayLongPress={150} activeOpacity={0.8}>
+                    <Image source={{ uri: item.uri }} style={styles.thumbnail} />
+                    {answerImages.length > 1 && (
+                      <View style={styles.dragHandle}>
+                        <Text style={styles.dragHandleText}>≡</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.thumbnailDelete}
+                    onPress={() => setAnswerImages(prev => prev.filter(img => img.uri !== item.uri))}
+                  >
+                    <Text style={styles.thumbnailDeleteText}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              </ScaleDecorator>
+            )}
+          />
         )}
       </View>
     </View>
@@ -911,10 +942,13 @@ const styles = StyleSheet.create({
   answerImagesLabel: { fontSize: 13, color: "#64748b", flex: 1 },
   imageCountBadge: { fontSize: 12, color: "#64748b", fontWeight: "600" },
   thumbnailRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  thumbnailContainer: { position: "relative" },
+  thumbnailContainer: { position: "relative", marginRight: 8 },
   thumbnail: { width: 72, height: 72, borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0" },
   thumbnailDelete: { position: "absolute", top: -6, right: -6, backgroundColor: "#dc2626", width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   thumbnailDeleteText: { color: "#fff", fontSize: 11, fontWeight: "bold" },
+  thumbnailDragging: { borderWidth: 2, borderColor: "#2563eb", borderRadius: 8, opacity: 0.9 },
+  dragHandle: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "rgba(37,99,235,0.7)", borderBottomLeftRadius: 8, borderBottomRightRadius: 8, alignItems: "center", paddingVertical: 1 },
+  dragHandleText: { color: "#fff", fontSize: 9, letterSpacing: 1 },
   button: { backgroundColor: "#2563eb", paddingVertical: 16, borderRadius: 14, alignItems: "center", marginBottom: 8, shadowColor: "#2563eb", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
   buttonDisabled: { backgroundColor: "#94a3b8", shadowOpacity: 0 },
   buttonText: { color: "#fff", fontSize: 18, fontWeight: "bold" },

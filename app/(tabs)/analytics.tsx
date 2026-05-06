@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -54,6 +55,7 @@ function TrendIcon({ trend }: { trend: "up" | "down" | "stable" | null }) {
 export default function AnalyticsScreen() {
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
+  const insets = useSafeAreaInsets();
   const [stats, setStats] = useState<SubjectStats[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [studyTip, setStudyTip] = useState("");
@@ -146,7 +148,7 @@ export default function AnalyticsScreen() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
       <Text style={styles.title}>📊 苦手分析</Text>
 
       {/* サマリー */}
@@ -237,7 +239,7 @@ export default function AnalyticsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { padding: 20, backgroundColor: "#f1f5f9", paddingBottom: 60 },
+  container: { padding: 20, backgroundColor: "#f1f5f9" },
   title: { fontSize: 24, fontWeight: "bold", textAlign: "center", marginBottom: 20, color: "#1e293b" },
   summaryRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
   summaryCard: {

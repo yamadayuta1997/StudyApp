@@ -18,6 +18,7 @@ import {
   View,
 } from "react-native";
 import Markdown from "react-native-markdown-display";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 const API_BASE_URL = "https://studyapp-production-66d5.up.railway.app";
 const MAX_IMAGES = 10;
@@ -30,6 +31,7 @@ type TextbookMeta = { bookId: string; subject: string; bookName: string; totalPa
 export default function AnswerScreen() {
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
+  const insets = useSafeAreaInsets();
 
   const [subject, setSubject] = useState("財務会計論");
   const [question, setQuestion] = useState("");
@@ -499,7 +501,7 @@ export default function AnswerScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>✏️ 答案採点</Text>
           <Text style={styles.headerSub}>問題と答案を入力してAI採点</Text>
@@ -679,7 +681,7 @@ export default function AnswerScreen() {
 const styles = StyleSheet.create({
   flex: { flex: 1 },
   scroll: { backgroundColor: "#f1f5f9" },
-  container: { padding: 20, paddingBottom: 60 },
+  container: { padding: 20 },
   header: { backgroundColor: "#1e40af", borderRadius: 16, padding: 24, marginBottom: 20, alignItems: "center" },
   headerTitle: { fontSize: 24, fontWeight: "bold", color: "#fff", marginBottom: 4 },
   headerSub: { fontSize: 14, color: "#bfdbfe" },

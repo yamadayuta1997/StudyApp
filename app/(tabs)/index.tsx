@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -30,6 +31,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
+  const insets = useSafeAreaInsets();
   const [stats, setStats] = useState<DashboardStats>({
     totalCount: 0,
     todayCount: 0,
@@ -123,7 +125,7 @@ export default function HomeScreen() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+    <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
       {/* ヘッダー */}
       <View style={styles.hero}>
         <Text style={styles.emoji}>📚</Text>
@@ -232,7 +234,7 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   scroll: { backgroundColor: "#eff6ff" },
-  container: { alignItems: "center", padding: 24, paddingBottom: 60 },
+  container: { alignItems: "center", padding: 24 },
   hero: { alignItems: "center", marginBottom: 24 },
   emoji: { fontSize: 56, marginBottom: 8 },
   title: { fontSize: 32, fontWeight: "bold", color: "#1e3a8a" },

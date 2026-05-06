@@ -1,6 +1,7 @@
 import * as DocumentPicker from "expo-document-picker";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
   Alert,
@@ -29,6 +30,7 @@ type TextbookMeta = {
 };
 
 export default function TextbookScreen() {
+  const insets = useSafeAreaInsets();
   const [books, setBooks] = useState<TextbookMeta[]>([]);
   const [filterSubject, setFilterSubject] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -183,7 +185,7 @@ export default function TextbookScreen() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
         <View style={styles.header}>
           <Text style={styles.headerTitle}>📚 教科書管理</Text>
           <Text style={styles.headerSub}>PDFを登録してAI採点の精度を向上</Text>
@@ -250,7 +252,7 @@ export default function TextbookScreen() {
       <Modal visible={showRegister} animationType="slide" onRequestClose={() => { stopPolling(); setRegLoading(false); setShowRegister(false); }}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <View style={styles.modalContainer}>
-            <View style={styles.modalHeader}>
+            <View style={[styles.modalHeader, { paddingTop: insets.top + 16 }]}>
               <Text style={styles.modalTitle}>📚 教科書を登録</Text>
               <TouchableOpacity onPress={() => setShowRegister(false)}>
                 <Text style={styles.modalClose}>✕</Text>
@@ -321,7 +323,7 @@ export default function TextbookScreen() {
 
 const styles = StyleSheet.create({
   scroll: { backgroundColor: "#f1f5f9" },
-  container: { padding: 20, paddingBottom: 60 },
+  container: { padding: 20 },
   header: {
     backgroundColor: "#1e40af",
     borderRadius: 16,
@@ -404,7 +406,6 @@ const styles = StyleSheet.create({
   modalHeader: {
     backgroundColor: "#1e40af",
     padding: 20,
-    paddingTop: 56,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",

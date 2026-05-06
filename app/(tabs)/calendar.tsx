@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Alert,
   KeyboardAvoidingView,
@@ -59,6 +60,7 @@ const EMPTY_WORKBOOK: Omit<Workbook, "id"> = {
 };
 
 export default function CalendarScreen() {
+  const insets = useSafeAreaInsets();
   const now = new Date();
   const [currentYear, setCurrentYear] = useState(now.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(now.getMonth());
@@ -231,7 +233,7 @@ export default function CalendarScreen() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.container}>
+      <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
         <Text style={styles.title}>📅 学習カレンダー</Text>
 
         {/* 試験日 */}
@@ -530,7 +532,7 @@ export default function CalendarScreen() {
 
 const styles = StyleSheet.create({
   scroll: { backgroundColor: "#f1f5f9" },
-  container: { padding: 16, paddingBottom: 60 },
+  container: { padding: 16 },
   title: { fontSize: 22, fontWeight: "bold", color: "#1e293b", marginBottom: 16, textAlign: "center" },
 
   card: {
@@ -650,7 +652,7 @@ const styles = StyleSheet.create({
   modal: { flex: 1, backgroundColor: "#f8fafc" },
   modalHeader: {
     backgroundColor: "#1e40af",
-    padding: 20, paddingTop: 56,
+    padding: 20,
     flexDirection: "row", justifyContent: "space-between", alignItems: "center",
   },
   modalTitle: { color: "#fff", fontSize: 18, fontWeight: "bold" },

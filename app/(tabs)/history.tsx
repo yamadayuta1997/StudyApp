@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   KeyboardAvoidingView,
   Modal,
@@ -66,6 +67,7 @@ function PassBadge({ passed }: { passed: boolean }) {
 }
 
 export default function CompareHistoryScreen() {
+  const insets = useSafeAreaInsets();
   const [history, setHistory] = useState<CompareHistoryItem[]>([]);
   const [selected, setSelected] = useState<CompareHistoryItem | null>(null);
   const [activeSubject, setActiveSubject] = useState<string>(ALL_TAB);
@@ -115,7 +117,7 @@ export default function CompareHistoryScreen() {
           ))}
         </ScrollView>
 
-        <ScrollView contentContainerStyle={styles.container}>
+        <ScrollView contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
           {filtered.length === 0 && (
             <Text style={styles.empty}>
               {activeSubject === ALL_TAB
@@ -150,7 +152,7 @@ export default function CompareHistoryScreen() {
 
       <Modal visible={selected !== null} animationType="slide" onRequestClose={() => setSelected(null)}>
         <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
+          <View style={[styles.modalHeader, { paddingTop: insets.top + 16 }]}>
             <View>
               <Text style={styles.modalSubject}>{selected?.subject ?? '比較添削'}</Text>
               <Text style={styles.modalDate}>{selected?.date}</Text>
@@ -259,7 +261,7 @@ const styles = StyleSheet.create({
   tabActive: { backgroundColor: '#7c3aed', borderColor: '#7c3aed' },
   tabText: { fontSize: 13, fontWeight: '600', color: '#6B7280' },
   tabTextActive: { color: '#fff' },
-  container: { padding: 16, paddingBottom: 32 },
+  container: { padding: 16 },
   empty: { textAlign: 'center', color: '#999', fontSize: 15, marginTop: 40, lineHeight: 26 },
   card: {
     backgroundColor: '#fff',
@@ -294,7 +296,6 @@ const styles = StyleSheet.create({
   modalHeader: {
     backgroundColor: '#7c3aed',
     padding: 24,
-    paddingTop: 60,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',

@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -37,6 +38,7 @@ function ScoreBadge({ score }: { score: number | null }) {
 }
 
 export default function HistoryScreen() {
+  const insets = useSafeAreaInsets();
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [selected, setSelected] = useState<HistoryItem | null>(null);
   const [filterSubject, setFilterSubject] = useState<string | null>(null);
@@ -63,7 +65,7 @@ export default function HistoryScreen() {
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
       <Text style={styles.title}>📋 採点履歴</Text>
 
       {/* 科目フィルター */}
@@ -111,7 +113,7 @@ export default function HistoryScreen() {
       {/* 詳細モーダル */}
       <Modal visible={selected !== null} animationType="slide" onRequestClose={() => setSelected(null)}>
         <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
+          <View style={[styles.modalHeader, { paddingTop: insets.top + 16 }]}>
             <View>
               <Text style={styles.modalSubject}>{selected?.subject}</Text>
               <Text style={styles.modalDate}>{selected?.date}</Text>
@@ -195,7 +197,6 @@ const styles = StyleSheet.create({
   modalHeader: {
     backgroundColor: "#2563eb",
     padding: 24,
-    paddingTop: 60,
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-end",

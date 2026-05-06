@@ -45,6 +45,9 @@ export default function AnswerScreen() {
   const [imageLoading, setImageLoading] = useState(false);
   const [imageFileName, setImageFileName] = useState("");
   const [imagePreviewUri, setImagePreviewUri] = useState<string | null>(null);
+  const [questionOcrLoading, setQuestionOcrLoading] = useState(false);
+  const [questionOcrFileName, setQuestionOcrFileName] = useState("");
+  const [questionOcrPreviewUri, setQuestionOcrPreviewUri] = useState<string | null>(null);
   const [pdfInfo, setPdfInfo] = useState<{
     totalPages: number; fromPage: number; toPage: number; imagePages?: number[];
   } | null>(null);
@@ -188,7 +191,13 @@ export default function AnswerScreen() {
     }
   };
 
-  const handleImagePick = async (useCamera: boolean) => {
+  const handleOcrImagePick = async (
+    useCamera: boolean,
+    setPreviewUri: (uri: string | null) => void,
+    setLoading: (v: boolean) => void,
+    setFileName: (name: string) => void,
+    onText: (text: string) => void,
+  ) => {
     let pickerResult;
     if (useCamera) {
       if (Platform.OS === "web") { setError("Webブラウザではカメラを使用できません。ギャラリーから画像を選択してください。"); return; }
@@ -222,37 +231,35 @@ export default function AnswerScreen() {
 
     const image = pickerResult.assets[0];
     const fileName = image.fileName || (useCamera ? "camera.jpg" : "image.jpg");
-    console.log("[handleImagePick] image:", { uri: image.uri, mimeType: image.mimeType, fileName, width: image.width, height: image.height });
-    setImagePreviewUri(image.uri);
-    setImageLoading(true);
-    setImageFileName(fileName);
+    setPreviewUri(image.uri);
+    setLoading(true);
+    setFileName(fileName);
 
     const formData = new FormData();
     if (Platform.OS === "web") {
       const blob = await (await fetch(image.uri)).blob();
       formData.append("image", blob, fileName);
-      console.log("[handleImagePick] web: blob appended, size:", blob.size);
     } else {
-      const fileEntry = { uri: image.uri, type: image.mimeType || "image/jpeg", name: fileName };
-      console.log("[handleImagePick] native: appending fileEntry:", fileEntry);
-      formData.append("image", fileEntry as any);
+      formData.append("image", { uri: image.uri, type: image.mimeType || "image/jpeg", name: fileName } as any);
     }
     try {
-      console.log("[handleImagePick] sending to", `${API_BASE_URL}/extract-image`);
       const res = await fetch(`${API_BASE_URL}/extract-image`, { method: "POST", body: formData });
-      console.log("[handleImagePick] response status:", res.status);
       const data = await res.json();
-      console.log("[handleImagePick] response data keys:", Object.keys(data));
       if (data.error) throw new Error(data.error);
-      setAnswer(data.text);
+      onText(data.text);
     } catch (e: any) {
-      console.log("[handleImagePick] ERROR:", e.message);
       setError("画像の読み込みに失敗しました: " + e.message);
-      setImageFileName("");
+      setFileName("");
     } finally {
-      setImageLoading(false);
+      setLoading(false);
     }
   };
+
+  const handleImagePick = (useCamera: boolean) =>
+    handleOcrImagePick(useCamera, setImagePreviewUri, setImageLoading, setImageFileName, setAnswer);
+
+  const handleQuestionImagePick = (useCamera: boolean) =>
+    handleOcrImagePick(useCamera, setQuestionOcrPreviewUri, setQuestionOcrLoading, setQuestionOcrFileName, setQuestion);
 
   const pickImagesFromGallery = async (
     setter: React.Dispatch<React.SetStateAction<{ uri: string; base64: string }[]>>,
@@ -410,6 +417,38 @@ export default function AnswerScreen() {
               {pdfLoading ? <ActivityIndicator size="small" color="#2563eb" /> : <Text style={styles.uploadButtonText}>📎 PDFから読み込む</Text>}
             </TouchableOpacity>
           </View>
+          <View style={styles.imageButtonRow}>
+            <TouchableOpacity
+              style={[styles.imageButton, { backgroundColor: "#f0fdf4", borderColor: "#86efac" }]}
+              onPress={() => handleQuestionImagePick(false)}
+              disabled={questionOcrLoading}
+            >
+              {questionOcrLoading ? <ActivityIndicator size="small" color="#166534" /> : <Text style={[styles.imageButtonText, { color: "#166534" }]}>🖼 ギャラリー</Text>}
+            </TouchableOpacity>
+            {Platform.OS !== "web" && (
+              <TouchableOpacity
+                style={[styles.imageButton, { backgroundColor: "#fefce8", borderColor: "#fde047" }]}
+                onPress={() => handleQuestionImagePick(true)}
+                disabled={questionOcrLoading}
+              >
+                {questionOcrLoading ? <ActivityIndicator size="small" color="#854d0e" /> : <Text style={[styles.imageButtonText, { color: "#854d0e" }]}>📸 カメラで撮影</Text>}
+              </TouchableOpacity>
+            )}
+          </View>
+          {questionOcrPreviewUri && (
+            <Image source={{ uri: questionOcrPreviewUri }} style={styles.imagePreview} resizeMode="contain" />
+          )}
+          {questionOcrLoading && (
+            <View style={styles.ocrStatus}>
+              <ActivityIndicator size="small" color="#166534" />
+              <Text style={[styles.ocrStatusText, { color: "#166534" }]}>AIが問題文を読み取り中...</Text>
+            </View>
+          )}
+          {!questionOcrLoading && questionOcrFileName !== "" && (
+            <View style={styles.ocrDone}>
+              <Text style={styles.ocrDoneText}>✅ 「{questionOcrFileName}」から問題文を読み取りました</Text>
+            </View>
+          )}
           <View style={styles.pageRangeRow}>
             <Text style={styles.pageRangeLabel}>ページ範囲：</Text>
             <TextInput style={styles.pageInput} value={fromPage} onChangeText={setFromPage} placeholder="開始" keyboardType="numeric" placeholderTextColor="#94a3b8" />

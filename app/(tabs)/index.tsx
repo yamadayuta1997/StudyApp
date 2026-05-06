@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
-import { getCautionTopics, CautionTopic } from "@/utils/cautionTopics";
+import { getCautionTopics, getOverdueReviewTopics, CautionTopic } from "@/utils/cautionTopics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
@@ -53,6 +53,7 @@ export default function HomeScreen() {
   const [dailyTip, setDailyTip] = useState("");
   const [tipLoading, setTipLoading] = useState(false);
   const [cautionTopics, setCautionTopics] = useState<CautionTopic[]>([]);
+  const [overdueTopics, setOverdueTopics] = useState<CautionTopic[]>([]);
   const [userName, setUserName] = useState("受験生");
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingName, setEditingName] = useState("");
@@ -147,6 +148,9 @@ export default function HomeScreen() {
 
     const caution = await getCautionTopics();
     setCautionTopics(caution);
+
+    const overdue = await getOverdueReviewTopics();
+    setOverdueTopics(overdue);
   };
 
   const getDailyTip = async () => {
@@ -265,6 +269,33 @@ export default function HomeScreen() {
               {cautionTopics.length > 3 && (
                 <Text style={styles.cautionAlertMore}>他 {cautionTopics.length - 3} 件 → 苦手分析で確認</Text>
               )}
+            </View>
+          )}
+
+          {overdueTopics.length > 0 && (
+            <View style={styles.reminderCard}>
+              <Text style={styles.reminderTitle}>📅 今日の復習</Text>
+              <Text style={styles.reminderSummary}>
+                {overdueTopics.slice(0, 3).map((t) => t.topic).join("・")}
+                {overdueTopics.length > 3 ? "・他" : ""}論点
+              </Text>
+              {overdueTopics.slice(0, 5).map(({ topic, subject, daysSinceReview }) => (
+                <TouchableOpacity
+                  key={`${subject}::${topic}`}
+                  style={styles.reminderItem}
+                  onPress={() =>
+                    router.push(`/(tabs)/explore?subject=${encodeURIComponent(subject)}` as any)
+                  }
+                >
+                  <View style={styles.reminderItemLeft}>
+                    <Text style={styles.reminderItemTopic}>・{topic}</Text>
+                    <Text style={styles.reminderItemMeta}>
+                      {subject}{daysSinceReview != null ? `・${daysSinceReview}日未復習` : ""}
+                    </Text>
+                  </View>
+                  <Text style={styles.reminderItemArrow}>→</Text>
+                </TouchableOpacity>
+              ))}
             </View>
           )}
 
@@ -457,6 +488,30 @@ const styles = StyleSheet.create({
   },
   recentChipText: { fontSize: 11, color: "#2563eb", fontWeight: "600" },
   emptyStats: { fontSize: 13, color: "#94a3b8", textAlign: "center", lineHeight: 20, paddingVertical: 4 },
+
+  // Reminder
+  reminderCard: {
+    backgroundColor: "#f0fdf4",
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: "#86efac",
+  },
+  reminderTitle: { fontSize: 13, fontWeight: "700", color: "#166534", marginBottom: 4 },
+  reminderSummary: { fontSize: 12, color: "#15803d", marginBottom: 8 },
+  reminderItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 6,
+    borderTopWidth: 1,
+    borderTopColor: "#bbf7d0",
+  },
+  reminderItemLeft: { flex: 1 },
+  reminderItemTopic: { fontSize: 13, color: "#14532d", fontWeight: "600" },
+  reminderItemMeta: { fontSize: 11, color: "#16a34a", marginTop: 1 },
+  reminderItemArrow: { fontSize: 14, color: "#16a34a", marginLeft: 8 },
 
   // Menu
   menuHeading: { fontSize: 15, fontWeight: "bold", color: "#1e40af", marginBottom: 10 },

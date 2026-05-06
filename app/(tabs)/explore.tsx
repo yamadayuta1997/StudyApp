@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect } from "expo-router";
-import { useCallback, useState } from "react";
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useCallback, useEffect, useState } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   KeyboardAvoidingView,
@@ -39,9 +39,10 @@ function ScoreBadge({ score }: { score: number | null }) {
 
 export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{ subject?: string }>();
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [selected, setSelected] = useState<HistoryItem | null>(null);
-  const [filterSubject, setFilterSubject] = useState<string | null>(null);
+  const [filterSubject, setFilterSubject] = useState<string | null>(params.subject ?? null);
 
   const loadHistory = async () => {
     const raw = await AsyncStorage.getItem("history");
@@ -49,6 +50,10 @@ export default function HistoryScreen() {
   };
 
   useFocusEffect(useCallback(() => { loadHistory(); }, []));
+
+  useEffect(() => {
+    if (params.subject) setFilterSubject(params.subject);
+  }, [params.subject]);
 
   const deleteItem = async (id: string) => {
     const newHistory = history.filter((h) => h.id !== id);

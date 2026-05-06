@@ -20,6 +20,20 @@ const API_BASE_URL = "https://studyapp-production-66d5.up.railway.app";
 
 const SUBJECTS = ["財務会計論", "管理会計論", "監査論", "企業法", "租税法", "経営学"];
 
+export function computeProgress(phase: string, progress?: number, total?: number): number {
+  const phaseBase: Record<string, number> = {
+    uploading: 10,
+    analyzing_diagrams: 30,
+    saving_mongodb: 70,
+    embedding: 70,
+  };
+  const base = phaseBase[phase] ?? 0;
+  if (phase === "embedding" && typeof progress === "number" && total && total > 0) {
+    return Math.min(99, Math.round(base + (progress / total) * 30));
+  }
+  return base;
+}
+
 type TextbookMeta = {
   bookId: string;
   subject: string;
@@ -40,6 +54,7 @@ export default function TextbookScreen() {
   const [regDescription, setRegDescription] = useState("");
   const [regLoading, setRegLoading] = useState(false);
   const [regStatusText, setRegStatusText] = useState("アップロード中...");
+  const [regProgress, setRegProgress] = useState(0);
   const [regError, setRegError] = useState("");
   const regPollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -87,11 +102,13 @@ export default function TextbookScreen() {
       const data = await res.json();
       if (data.status === "done") {
         stopPolling();
+        setRegProgress(100);
         setRegLoading(false);
         Alert.alert("登録完了", "教科書の登録と埋め込み生成が完了しました");
         setShowRegister(false);
         setRegBookName("");
         setRegDescription("");
+        setRegProgress(0);
         await loadBooks();
       } else if (data.status === "error") {
         stopPolling();
@@ -105,6 +122,7 @@ export default function TextbookScreen() {
           embedding: `埋め込み生成中... ${data.progress ?? 0}/${data.total ?? "?"}`,
         };
         setRegStatusText(phaseLabels[data.phase] ?? "処理中...");
+        setRegProgress(computeProgress(data.phase, data.progress, data.total));
         regPollingRef.current = setTimeout(() => pollJobStatus(jobId), 3000);
       }
     } catch {
@@ -128,6 +146,7 @@ export default function TextbookScreen() {
 
     const file = picked.assets[0];
     setRegLoading(true);
+    setRegProgress(5);
     setRegError("");
 
     const formData = new FormData();
@@ -162,6 +181,7 @@ export default function TextbookScreen() {
       if (data.error) throw new Error(data.error);
       if (res.status === 202 && data.jobId) {
         setRegStatusText("処理中...");
+        setRegProgress(10);
         await loadBooks();
         regPollingRef.current = setTimeout(() => pollJobStatus(data.jobId), 3000);
       } else {
@@ -312,6 +332,15 @@ export default function TextbookScreen() {
                 )}
               </TouchableOpacity>
 
+              {regLoading && (
+                <View style={styles.progressContainer}>
+                  <View style={styles.progressBarTrack}>
+                    <View style={[styles.progressBarFill, { width: `${regProgress}%` as any }]} />
+                  </View>
+                  <Text style={styles.progressPercent}>{regProgress}%</Text>
+                </View>
+              )}
+
               <Text style={styles.registerHint}>PDFを選択するとテキスト抽出が開始されます（数十秒かかる場合があります）</Text>
             </ScrollView>
           </View>
@@ -456,4 +485,8 @@ const styles = StyleSheet.create({
   registerButtonContent: { flexDirection: "row", alignItems: "center", gap: 8 },
   registerButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   registerHint: { fontSize: 12, color: "#94a3b8", textAlign: "center", marginTop: 12, lineHeight: 18 },
+  progressContainer: { marginTop: 12, gap: 6 },
+  progressBarTrack: { height: 8, backgroundColor: "#e2e8f0", borderRadius: 4, overflow: "hidden" },
+  progressBarFill: { height: 8, backgroundColor: "#2563eb", borderRadius: 4 },
+  progressPercent: { fontSize: 12, color: "#64748b", textAlign: "center", fontWeight: "600" },
 });

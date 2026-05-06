@@ -144,6 +144,59 @@ describe('textbook — 登録バリデーション', () => {
   });
 });
 
+// computeProgress: phaseとembedding進捗から0〜100%を算出する
+function computeProgress(phase: string, progress?: number, total?: number): number {
+  const phaseBase: Record<string, number> = {
+    uploading: 10,
+    analyzing_diagrams: 30,
+    saving_mongodb: 70,
+    embedding: 70,
+  };
+  const base = phaseBase[phase] ?? 0;
+  if (phase === 'embedding' && typeof progress === 'number' && total && total > 0) {
+    return Math.min(99, Math.round(base + (progress / total) * 30));
+  }
+  return base;
+}
+
+describe('textbook — computeProgress', () => {
+  test('uploading は 10%', () => {
+    expect(computeProgress('uploading')).toBe(10);
+  });
+
+  test('analyzing_diagrams は 30%', () => {
+    expect(computeProgress('analyzing_diagrams')).toBe(30);
+  });
+
+  test('saving_mongodb は 70%', () => {
+    expect(computeProgress('saving_mongodb')).toBe(70);
+  });
+
+  test('embedding 開始直後 (0/100) は 70%', () => {
+    expect(computeProgress('embedding', 0, 100)).toBe(70);
+  });
+
+  test('embedding 50% 完了 (50/100) は 85%', () => {
+    expect(computeProgress('embedding', 50, 100)).toBe(85);
+  });
+
+  test('embedding 完了直前 (100/100) は 99% に上限クランプ', () => {
+    expect(computeProgress('embedding', 100, 100)).toBe(99);
+  });
+
+  test('embedding で total=0 のときは base の 70% を返す', () => {
+    expect(computeProgress('embedding', 0, 0)).toBe(70);
+  });
+
+  test('不明な phase は 0%', () => {
+    expect(computeProgress('unknown_phase')).toBe(0);
+  });
+
+  test('done phase は 0%（呼び出し側が 100 をセット）', () => {
+    expect(computeProgress('done')).toBe(0);
+  });
+});
+
 describe('textbook — 表示データの完全性', () => {
   test('全フィールドが揃っている', () => {
     const book = makeBook();

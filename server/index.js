@@ -83,6 +83,19 @@ const openaiClient = process.env.OPENAI_API_KEY
   ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
   : null;
 
+async function extractTopicsFromChunks(chunksText, subject) {
+  const res = await client.messages.create({
+    model: "claude-haiku-4-5-20251001",
+    max_tokens: 300,
+    messages: [{
+      role: "user",
+      content: `以下の教科書テキストから、この範囲で問われる可能性のある主要論点を5つ以内で抽出してください。論点名のみをカンマ区切りで出力してください。科目: ${subject}\n\n${chunksText.slice(0, 2000)}`,
+    }],
+  });
+  const text = res.content[0].text.trim();
+  return text.split(/[,、，]/).map(t => t.trim()).filter(Boolean);
+}
+
 async function extractIssues(answerText, modelText, subject) {
   const res = await client.messages.create({
     model: "claude-haiku-4-5-20251001",
@@ -595,10 +608,48 @@ app.post("/textbook/search", async (req, res) => {
   }
 });
 
+// ---- Textbook: Chunks by Page Range ----
+app.post("/textbook/chunks-by-pages", async (req, res) => {
+  try {
+    const { bookId, fromPage, toPage } = req.body;
+    if (!bookId) return res.status(400).json({ error: "bookId は必須です。" });
+
+    const from = Math.max(1, parseInt(fromPage) || 1);
+    const to = parseInt(toPage) || 9999;
+
+    if (isMongoEnabled && Chunk) {
+      try {
+        const chunks = await Chunk.find({
+          textbookId: bookId,
+          pageNum: { $gte: from, $lte: to },
+        }).sort({ pageNum: 1, chunkIndex: 1 }).lean();
+        if (chunks.length > 0) {
+          const text = chunks.map(c => c.content).join("\n");
+          return res.json({ text, chunkCount: chunks.length, source: "mongodb" });
+        }
+      } catch (mongoErr) {
+        console.error("[textbook/chunks-by-pages] MongoDB error:", mongoErr.message);
+      }
+    }
+
+    const book = textbookCache.get(bookId);
+    if (!book) return res.status(404).json({ error: "教科書が見つかりません。" });
+
+    const pages = book.pages.filter(p => p.pageNum >= from && p.pageNum <= to);
+    if (pages.length === 0) return res.status(404).json({ error: "指定ページ範囲に内容がありません。" });
+
+    const text = pages.map(p => buildPageContent(p)).join("\n");
+    return res.json({ text, chunkCount: pages.length, source: "json" });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ---- Grade ----
 app.post("/grade", async (req, res) => {
   try {
-    const { question, answer, subject, bookIds = [], questionImages = [], answerImages = [] } = req.body;
+    const { question, answer, subject, bookIds = [], questionImages = [], answerImages = [],
+            sourceBookId, sourceFromPage, sourceToPage } = req.body;
     if (!question || !answer || !subject) {
       return res.status(400).json({ error: "question・answer・subject は必須です。" });
     }
@@ -611,6 +662,39 @@ app.post("/grade", async (req, res) => {
         for (const page of book.pages) {
           bookContext += `【参考教材】\n${book.bookName} p.${page.pageNum}:\n${buildPageContent(page)}\n\n`;
         }
+      }
+    }
+
+    // Topic extraction from source textbook page range
+    let topicList = [];
+    if (sourceBookId) {
+      try {
+        const from = Math.max(1, parseInt(sourceFromPage) || 1);
+        const to = parseInt(sourceToPage) || 9999;
+        let chunksText = "";
+        if (isMongoEnabled && Chunk) {
+          try {
+            const chunks = await Chunk.find({
+              textbookId: sourceBookId,
+              pageNum: { $gte: from, $lte: to },
+            }).sort({ pageNum: 1, chunkIndex: 1 }).lean();
+            chunksText = chunks.map(c => c.content).join("\n");
+          } catch (mongoErr) {
+            console.error("[grade] MongoDB chunks error:", mongoErr.message);
+          }
+        }
+        if (!chunksText) {
+          const srcBook = textbookCache.get(sourceBookId);
+          if (srcBook) {
+            const pages = srcBook.pages.filter(p => p.pageNum >= from && p.pageNum <= to);
+            chunksText = pages.map(p => buildPageContent(p)).join("\n");
+          }
+        }
+        if (chunksText) {
+          topicList = await extractTopicsFromChunks(chunksText, subject);
+        }
+      } catch (topicErr) {
+        console.error("[grade] topic extraction error:", topicErr.message);
       }
     }
 
@@ -637,13 +721,17 @@ app.post("/grade", async (req, res) => {
       answerImages.length > 0 ? "答案に画像・図が含まれています。その内容も採点対象にしてください。図の正確性・凡例・単位なども評価してください。" : "",
     ].filter(Boolean).join("\n");
 
-    const promptText = `あなたは公認会計士試験の採点官です。科目は「${subject}」です。以下の問題と答案を採点してください。\n\n【問題】\n${question}\n\n【答案】\n${answer}\n\n${hasImages ? imageNote + "\n\n" : ""}正誤判定と改善点を丁寧に説明してください。採点・フィードバック後、以下を必ず記載:\n【得点率】XX%\n【論点】論点名1, 論点名2（主要論点を3つ以内でカンマ区切り）\n【誤答論点】論点名（間違えた論点。完答なら「なし」）\n${bookIds.length > 0 ? "【参考ページ】教科書名 p.XX（参照教材の中で関連するページがあれば・複数可）\n" : ""}【解説まとめ】この問題で押さえるべきポイントを3行以内で`;
+    const topicEvalSection = topicList.length > 0
+      ? `\n\n【論点リスト】この問題で問われている論点：\n${topicList.map((t, i) => `${i + 1}. ${t}`).join("\n")}\n\n採点後、以下の形式で論点評価を追記してください：\n【論点評価】\n✅ 正しく言及: （論点名をカンマ区切り。なければ「なし」）\n❌ 抜けている: （論点名をカンマ区切り。なければ「なし」）\n⚠️ 不要・的外れ: （論点名をカンマ区切り。なければ「なし」）`
+      : "";
+
+    const promptText = `あなたは公認会計士試験の採点官です。科目は「${subject}」です。以下の問題と答案を採点してください。\n\n【問題】\n${question}\n\n【答案】\n${answer}\n\n${hasImages ? imageNote + "\n\n" : ""}正誤判定と改善点を丁寧に説明してください。採点・フィードバック後、以下を必ず記載:\n【得点率】XX%\n【論点】論点名1, 論点名2（主要論点を3つ以内でカンマ区切り）\n【誤答論点】論点名（間違えた論点。完答なら「なし」）\n${bookIds.length > 0 ? "【参考ページ】教科書名 p.XX（参照教材の中で関連するページがあれば・複数可）\n" : ""}【解説まとめ】この問題で押さえるべきポイントを3行以内で${topicEvalSection}`;
 
     userContent.push({ type: "text", text: promptText });
 
     const message = await client.messages.create({
       model: "claude-sonnet-4-5",
-      max_tokens: 1500,
+      max_tokens: 2000,
       messages: [{ role: "user", content: userContent }],
     });
     const resultText = message.content[0].text;
@@ -661,7 +749,24 @@ app.post("/grade", async (req, res) => {
     const refPages = refMatchAll ? refMatchAll.map(m => m.replace("【参考ページ】", "").trim()) : [];
     const summary = summaryMatch ? summaryMatch[1].trim() : "";
 
-    res.json({ result: resultText, score, topics, wrongTopics, refPages, summary });
+    const topicEvalMatch = resultText.match(/【論点評価】([\s\S]+?)(?=【|$)/);
+    let topicEvaluation = null;
+    if (topicEvalMatch) {
+      const evalText = topicEvalMatch[1];
+      const presentMatch = evalText.match(/✅ 正しく言及:\s*(.+)/);
+      const missingMatch = evalText.match(/❌ 抜けている:\s*(.+)/);
+      const irrelevantMatch = evalText.match(/⚠️ 不要・的外れ:\s*(.+)/);
+      topicEvaluation = {
+        present: presentMatch && presentMatch[1].trim() !== "なし"
+          ? presentMatch[1].split(/[,、，]/).map(s => s.trim()).filter(Boolean) : [],
+        missing: missingMatch && missingMatch[1].trim() !== "なし"
+          ? missingMatch[1].split(/[,、，]/).map(s => s.trim()).filter(Boolean) : [],
+        irrelevant: irrelevantMatch && irrelevantMatch[1].trim() !== "なし"
+          ? irrelevantMatch[1].split(/[,、，]/).map(s => s.trim()).filter(Boolean) : [],
+      };
+    }
+
+    res.json({ result: resultText, score, topics, wrongTopics, refPages, summary, topicList, topicEvaluation });
   } catch (e) {
     console.error("/grade error:", e.message);
     res.status(500).json({ error: e.message });
@@ -1346,3 +1451,4 @@ module.exports = app;
 module.exports.extractIssues = extractIssues;
 module.exports.getEmbedding  = getEmbedding;
 module.exports.splitIntoSemanticChunks = splitIntoSemanticChunks;
+module.exports.extractTopicsFromChunks = extractTopicsFromChunks;

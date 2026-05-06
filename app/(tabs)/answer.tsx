@@ -54,6 +54,21 @@ export default function AnswerScreen() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
 
+  // Question source mode
+  const [questionSourceMode, setQuestionSourceMode] = useState<"manual" | "textbook">("manual");
+  const [sourceBookId, setSourceBookId] = useState<string>("");
+  const [sourceFromPage, setSourceFromPage] = useState<string>("");
+  const [sourceToPage, setSourceToPage] = useState<string>("");
+  const [chunksLoading, setChunksLoading] = useState(false);
+
+  // Topic evaluation
+  const [topicList, setTopicList] = useState<string[]>([]);
+  const [topicEvaluation, setTopicEvaluation] = useState<{
+    present: string[];
+    missing: string[];
+    irrelevant: string[];
+  } | null>(null);
+
   // Textbook selection
   const [availableBooks, setAvailableBooks] = useState<TextbookMeta[]>([]);
   const [selectedBookIds, setSelectedBookIds] = useState<Set<string>>(new Set());
@@ -92,6 +107,26 @@ export default function AnswerScreen() {
       else next.add(bookId);
       return next;
     });
+  };
+
+  const loadChunksFromTextbook = async () => {
+    if (!sourceBookId) { setError("教科書を選択してください。"); return; }
+    setChunksLoading(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE_URL}/textbook/chunks-by-pages`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookId: sourceBookId, fromPage: sourceFromPage, toPage: sourceToPage }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setQuestion(data.text);
+    } catch (e: any) {
+      setError("教科書の読み込みに失敗しました: " + e.message);
+    } finally {
+      setChunksLoading(false);
+    }
   };
 
   const handlePdfUpload = async () => {
@@ -262,6 +297,8 @@ export default function AnswerScreen() {
     setRefPages([]);
     setError("");
     setChatMessages([]);
+    setTopicList([]);
+    setTopicEvaluation(null);
     try {
       const res = await fetch(`${API_BASE_URL}/grade`, {
         method: "POST",
@@ -271,12 +308,17 @@ export default function AnswerScreen() {
           bookIds: [...selectedBookIds],
           questionImages: questionImages.map(i => i.base64),
           answerImages: answerImages.map(i => i.base64),
+          ...(questionSourceMode === "textbook" && sourceBookId ? {
+            sourceBookId, sourceFromPage, sourceToPage,
+          } : {}),
         }),
       });
       const data = await res.json();
       setResult(data.result);
       setSummary(data.summary || "");
       setRefPages(data.refPages || []);
+      setTopicList(data.topicList || []);
+      setTopicEvaluation(data.topicEvaluation || null);
 
       const newItem = {
         id: Date.now().toString(),
@@ -344,41 +386,110 @@ export default function AnswerScreen() {
 
   const questionSection = (
     <View style={[styles.section, isTablet && styles.tabletHalf]}>
-      <View style={styles.sectionHeader}>
-        <Text style={styles.sectionTitle}>📄 問題文</Text>
-        <TouchableOpacity style={styles.uploadButton} onPress={handlePdfUpload} disabled={pdfLoading}>
-          {pdfLoading ? <ActivityIndicator size="small" color="#2563eb" /> : <Text style={styles.uploadButtonText}>📎 PDFから読み込む</Text>}
+      {/* Source mode toggle */}
+      <View style={styles.sourceToggleRow}>
+        <TouchableOpacity
+          style={[styles.sourceToggleBtn, questionSourceMode === "manual" && styles.sourceToggleBtnActive]}
+          onPress={() => setQuestionSourceMode("manual")}
+        >
+          <Text style={[styles.sourceToggleText, questionSourceMode === "manual" && styles.sourceToggleTextActive]}>✏️ テキスト入力</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.sourceToggleBtn, questionSourceMode === "textbook" && styles.sourceToggleBtnActive]}
+          onPress={() => setQuestionSourceMode("textbook")}
+        >
+          <Text style={[styles.sourceToggleText, questionSourceMode === "textbook" && styles.sourceToggleTextActive]}>📚 教科書から選択</Text>
         </TouchableOpacity>
       </View>
-      <View style={styles.pageRangeRow}>
-        <Text style={styles.pageRangeLabel}>ページ範囲：</Text>
-        <TextInput style={styles.pageInput} value={fromPage} onChangeText={setFromPage} placeholder="開始" keyboardType="numeric" placeholderTextColor="#94a3b8" />
-        <Text style={styles.pageRangeSep}>〜</Text>
-        <TextInput style={styles.pageInput} value={toPage} onChangeText={setToPage} placeholder="終了" keyboardType="numeric" placeholderTextColor="#94a3b8" />
-        <Text style={styles.pageRangeHint}>（空欄=全ページ）</Text>
-      </View>
-      {pdfInfo && (
-        <View style={styles.pdfPreview}>
-          <Text style={styles.pdfPreviewText}>全{pdfInfo.totalPages}ページ中 {pdfInfo.fromPage}〜{pdfInfo.toPage}ページ読込済</Text>
-          <Text style={styles.pdfPreviewText}>{question.length.toLocaleString()} 文字</Text>
-        </View>
+
+      {questionSourceMode === "manual" ? (
+        <>
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>📄 問題文</Text>
+            <TouchableOpacity style={styles.uploadButton} onPress={handlePdfUpload} disabled={pdfLoading}>
+              {pdfLoading ? <ActivityIndicator size="small" color="#2563eb" /> : <Text style={styles.uploadButtonText}>📎 PDFから読み込む</Text>}
+            </TouchableOpacity>
+          </View>
+          <View style={styles.pageRangeRow}>
+            <Text style={styles.pageRangeLabel}>ページ範囲：</Text>
+            <TextInput style={styles.pageInput} value={fromPage} onChangeText={setFromPage} placeholder="開始" keyboardType="numeric" placeholderTextColor="#94a3b8" />
+            <Text style={styles.pageRangeSep}>〜</Text>
+            <TextInput style={styles.pageInput} value={toPage} onChangeText={setToPage} placeholder="終了" keyboardType="numeric" placeholderTextColor="#94a3b8" />
+            <Text style={styles.pageRangeHint}>（空欄=全ページ）</Text>
+          </View>
+          {pdfInfo && (
+            <View style={styles.pdfPreview}>
+              <Text style={styles.pdfPreviewText}>全{pdfInfo.totalPages}ページ中 {pdfInfo.fromPage}〜{pdfInfo.toPage}ページ読込済</Text>
+              <Text style={styles.pdfPreviewText}>{question.length.toLocaleString()} 文字</Text>
+            </View>
+          )}
+          {pdfInfo?.imagePages && pdfInfo.imagePages.length > 0 && (
+            <View style={styles.imagePagesWarning}>
+              <Text style={styles.imagePagesWarningText}>
+                ⚠️ {pdfInfo.imagePages.length}ページに図・画像が含まれています。精度向上のため画像でも取り込むことをお勧めします
+              </Text>
+            </View>
+          )}
+          <TextInput
+            style={styles.input}
+            multiline
+            placeholder="問題文を入力、またはPDFから読み込んでください"
+            placeholderTextColor="#94a3b8"
+            value={question}
+            onChangeText={setQuestion}
+          />
+          <Text style={styles.charCount}>{question.length.toLocaleString()} 文字</Text>
+        </>
+      ) : (
+        <>
+          <Text style={styles.sectionTitle}>📚 問題文（教科書から選択）</Text>
+          {availableBooks.length === 0 ? (
+            <Text style={styles.noBooksText}>教科書が登録されていません。先に教科書タブから登録してください。</Text>
+          ) : (
+            <>
+              {availableBooks.map(book => (
+                <TouchableOpacity key={book.bookId} style={styles.bookSelectRow} onPress={() => setSourceBookId(book.bookId)}>
+                  <View style={[styles.bookCheckbox, sourceBookId === book.bookId && styles.bookCheckboxActive]}>
+                    {sourceBookId === book.bookId && <Text style={styles.bookCheckmark}>✓</Text>}
+                  </View>
+                  <Text style={styles.bookSelectName}>{book.bookName}</Text>
+                  <Text style={styles.bookSelectPages}>{book.subject} / {book.totalPages}p</Text>
+                </TouchableOpacity>
+              ))}
+              <View style={styles.pageRangeRow}>
+                <Text style={styles.pageRangeLabel}>ページ範囲：P.</Text>
+                <TextInput style={styles.pageInput} value={sourceFromPage} onChangeText={setSourceFromPage} placeholder="開始" keyboardType="numeric" placeholderTextColor="#94a3b8" />
+                <Text style={styles.pageRangeSep}>〜P.</Text>
+                <TextInput style={styles.pageInput} value={sourceToPage} onChangeText={setSourceToPage} placeholder="終了" keyboardType="numeric" placeholderTextColor="#94a3b8" />
+              </View>
+              <TouchableOpacity
+                style={[styles.loadChunksButton, (!sourceBookId || chunksLoading) && styles.buttonDisabled]}
+                onPress={loadChunksFromTextbook}
+                disabled={!sourceBookId || chunksLoading}
+              >
+                {chunksLoading
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.loadChunksButtonText}>📖 このページを読み込む</Text>}
+              </TouchableOpacity>
+            </>
+          )}
+          {question !== "" && (
+            <>
+              <View style={styles.pdfPreview}>
+                <Text style={styles.pdfPreviewText}>読み込み済み：{question.length.toLocaleString()} 文字</Text>
+              </View>
+              <TextInput
+                style={[styles.input, styles.inputReadonly]}
+                multiline
+                value={question}
+                onChangeText={setQuestion}
+                placeholderTextColor="#94a3b8"
+              />
+            </>
+          )}
+        </>
       )}
-      {pdfInfo?.imagePages && pdfInfo.imagePages.length > 0 && (
-        <View style={styles.imagePagesWarning}>
-          <Text style={styles.imagePagesWarningText}>
-            ⚠️ {pdfInfo.imagePages.length}ページに図・画像が含まれています。精度向上のため画像でも取り込むことをお勧めします
-          </Text>
-        </View>
-      )}
-      <TextInput
-        style={styles.input}
-        multiline
-        placeholder="問題文を入力、またはPDFから読み込んでください"
-        placeholderTextColor="#94a3b8"
-        value={question}
-        onChangeText={setQuestion}
-      />
-      <Text style={styles.charCount}>{question.length.toLocaleString()} 文字</Text>
+
 
       {/* 問題文画像追加 */}
       <View style={styles.answerImagesSection}>
@@ -584,6 +695,36 @@ export default function AnswerScreen() {
               <Markdown style={markdownStyles}>{result}</Markdown>
             </View>
 
+            {/* 論点評価 */}
+            {topicEvaluation && (
+              <View style={styles.topicEvalCard}>
+                <Text style={styles.topicEvalTitle}>🎯 論点評価</Text>
+                {topicList.length > 0 && (
+                  <View style={styles.topicListSection}>
+                    <Text style={styles.topicListTitle}>抽出論点：</Text>
+                    {topicList.map((t, i) => (
+                      <Text key={i} style={styles.topicItem}>• {t}</Text>
+                    ))}
+                  </View>
+                )}
+                {topicEvaluation.present.map((t, i) => (
+                  <View key={`p${i}`} style={styles.topicRow}>
+                    <Text style={styles.topicPresent}>✅ {t}</Text>
+                  </View>
+                ))}
+                {topicEvaluation.missing.map((t, i) => (
+                  <View key={`m${i}`} style={styles.topicRow}>
+                    <Text style={styles.topicMissing}>❌ {t}</Text>
+                  </View>
+                ))}
+                {topicEvaluation.irrelevant.map((t, i) => (
+                  <View key={`ir${i}`} style={styles.topicRow}>
+                    <Text style={styles.topicIrrelevant}>⚠️ {t}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
             {/* 参考ページ */}
             {refPages.length > 0 && (
               <View style={styles.refPagesCard}>
@@ -783,6 +924,24 @@ const styles = StyleSheet.create({
   subjectModalCancelText: { color: "#64748b", fontSize: 15, fontWeight: "600" },
   subjectModalConfirm: { flex: 2, backgroundColor: "#2563eb", borderRadius: 12, padding: 14, alignItems: "center" },
   subjectModalConfirmText: { color: "#fff", fontSize: 15, fontWeight: "bold" },
+  sourceToggleRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+  sourceToggleBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5, borderColor: "#cbd5e1", backgroundColor: "#f8fafc", alignItems: "center" },
+  sourceToggleBtnActive: { backgroundColor: "#1e40af", borderColor: "#1e40af" },
+  sourceToggleText: { fontSize: 13, fontWeight: "600", color: "#64748b" },
+  sourceToggleTextActive: { color: "#fff" },
+  noBooksText: { fontSize: 13, color: "#94a3b8", textAlign: "center", marginVertical: 12 },
+  loadChunksButton: { backgroundColor: "#0891b2", paddingVertical: 12, borderRadius: 10, alignItems: "center", marginTop: 10 },
+  loadChunksButtonText: { color: "#fff", fontSize: 14, fontWeight: "bold" },
+  inputReadonly: { backgroundColor: "#f0f9ff", borderColor: "#bae6fd" },
+  topicEvalCard: { backgroundColor: "#fff", borderRadius: 14, padding: 16, marginTop: 10, borderWidth: 1, borderColor: "#e2e8f0" },
+  topicEvalTitle: { fontSize: 15, fontWeight: "bold", color: "#1e40af", marginBottom: 10 },
+  topicListSection: { backgroundColor: "#f8fafc", borderRadius: 8, padding: 10, marginBottom: 10 },
+  topicListTitle: { fontSize: 13, fontWeight: "600", color: "#475569", marginBottom: 4 },
+  topicItem: { fontSize: 13, color: "#334155", marginBottom: 2 },
+  topicRow: { paddingVertical: 4 },
+  topicPresent: { fontSize: 14, color: "#15803d" },
+  topicMissing: { fontSize: 14, color: "#dc2626" },
+  topicIrrelevant: { fontSize: 14, color: "#d97706" },
 });
 
 const markdownStyles = {

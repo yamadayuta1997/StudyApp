@@ -4,8 +4,6 @@ import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { DAILY_LIMIT, checkAndIncrement, getDeviceId, getUsageCount, isDevDevice } from '@/utils/usageLimit';
 import { isCloseEnough, jaccardSim } from '@/utils/jaccardSim';
-import { computeWeakness, WeakPoint } from '@/utils/computeWeakness';
-import { HistoryItem } from '@/app/(tabs)/explore';
 import {
   ActivityIndicator,
   Alert,
@@ -33,9 +31,6 @@ const SERVER = 'https://studyapp-production-66d5.up.railway.app';
 const SUBJECTS = ['財務会計論', '管理会計論', '監査論', '企業法', '租税法', '経営学'];
 
 const COLOR_MAP: Record<string, string> = { red: '#FF3B30', yellow: '#FF9500', green: '#34C759' };
-const TYPE_COLOR: Record<string, string> = {
-  '論点誤認': '#FF3B30', '思考プロセスミス': '#FF9500', '計算ミス': '#FF6B00', '前提不足': '#007AFF',
-};
 
 const TYPE_ICON: Record<string, string> = {
   '論点誤認': '🔴', '思考プロセスミス': '🟡', '計算ミス': '🟠', '前提不足': '🔵',
@@ -78,8 +73,7 @@ export default function CompareScreen() {
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [lastSavedDate, setLastSavedDate] = useState<string | null>(null);
-  const [weakTop3, setWeakTop3] = useState<WeakPoint[]>([]);
-  const [usageCount, setUsageCount] = useState(0);
+const [usageCount, setUsageCount] = useState(0);
   const [limitReached, setLimitReached] = useState(false);
   const [isDev, setIsDev] = useState(false);
   const [evalScore, setEvalScore] = useState<number | null>(null);
@@ -146,9 +140,6 @@ export default function CompareScreen() {
       const items: CompareHistoryItem[] = JSON.parse(raw);
       console.log('[compare][load] items count:', items.length);
       if (items.length === 0) return;
-      const rawRegular = await AsyncStorage.getItem('history');
-      const regularItems: HistoryItem[] = rawRegular ? JSON.parse(rawRegular) : [];
-      setWeakTop3(computeWeakness(items, regularItems));
       const latest = items[items.length - 1];
       setLastSavedDate(latest.date);
       if (result === null) {
@@ -181,9 +172,6 @@ export default function CompareScreen() {
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
       setLastSavedDate(newItem.date);
       setSaveStatus('saved');
-      const rawRegular = await AsyncStorage.getItem('history');
-      const regularItems: HistoryItem[] = rawRegular ? JSON.parse(rawRegular) : [];
-      setWeakTop3(computeWeakness(updated, regularItems));
       console.log('[compare][save] saved id:', newItem.id, 'score:', gradeResult.score, 'total items:', updated.length);
       // 改善案を promptTips に蓄積（次回分析に反映）
       if (improvementsToSave.length > 0) {
@@ -473,23 +461,6 @@ export default function CompareScreen() {
             </>
           );
         })()}
-
-        {/* 弱点分析 TOP3（折りたたみ） */}
-        {weakTop3.length > 0 && (
-          <View style={styles.weakCard}>
-            <Text style={styles.weakTitle}>📊 ミスの傾向 TOP{weakTop3.length}</Text>
-            {weakTop3.map((wp, i) => (
-              <View key={wp.type} style={styles.weakRow}>
-                <Text style={styles.weakRank}>#{i + 1}</Text>
-                <Text style={styles.weakIcon}>{TYPE_ICON[wp.type] || '•'}</Text>
-                <Text style={styles.weakType}>{wp.type}</Text>
-                <View style={[styles.weakBadge, { backgroundColor: TYPE_COLOR[wp.type] || '#8E8E93' }]}>
-                  <Text style={styles.weakBadgeText}>×{wp.count}回</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
 
         {/* AIヒント蓄積状態 */}
         {promptTips.length > 0 && (
@@ -928,24 +899,6 @@ const styles = StyleSheet.create({
   /* 分析ボタン */
   analyzeBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   analyzeBtnDim: { opacity: 0.45 },
-
-  /* 弱点分析 */
-  weakCard: {
-    backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 16,
-    borderWidth: 1, borderColor: '#E5E5EA',
-  },
-  weakTitle: { fontSize: 14, fontWeight: '700', color: '#1C1C1E', marginBottom: 10 },
-  weakRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  weakRank: { fontSize: 13, fontWeight: '700', color: '#8E8E93', width: 24 },
-  weakIcon: { fontSize: 16 },
-  weakType: { flex: 1, fontSize: 14, fontWeight: '600', color: '#1C1C1E' },
-  weakBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
-  weakBadgeText: { fontSize: 12, fontWeight: '700', color: '#fff' },
-  weakEmpty: {
-    backgroundColor: '#F9FAFB', borderRadius: 12, padding: 14, marginBottom: 16,
-    borderWidth: 1, borderColor: '#E5E5EA', alignItems: 'center',
-  },
-  weakEmptyText: { fontSize: 13, color: '#8E8E93' },
 
   /* 保存ボタン */
   saveBtn: {

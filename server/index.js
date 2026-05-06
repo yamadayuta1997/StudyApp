@@ -598,7 +598,7 @@ app.post("/textbook/search", async (req, res) => {
 // ---- Grade ----
 app.post("/grade", async (req, res) => {
   try {
-    const { question, answer, subject, bookIds = [], answerImages = [] } = req.body;
+    const { question, answer, subject, bookIds = [], questionImages = [], answerImages = [] } = req.body;
     if (!question || !answer || !subject) {
       return res.status(400).json({ error: "question・answer・subject は必須です。" });
     }
@@ -618,11 +618,26 @@ app.post("/grade", async (req, res) => {
     if (bookContext) {
       userContent.push({ type: "text", text: `${bookContext}\n---\n` });
     }
-    for (const imgBase64 of answerImages) {
-      userContent.push({ type: "image", source: { type: "base64", media_type: detectMediaType(imgBase64), data: imgBase64 } });
+    if (questionImages.length > 0) {
+      userContent.push({ type: "text", text: "【問題文の画像】\n" });
+      for (const imgBase64 of questionImages) {
+        userContent.push({ type: "image", source: { type: "base64", media_type: detectMediaType(imgBase64), data: imgBase64 } });
+      }
+    }
+    if (answerImages.length > 0) {
+      userContent.push({ type: "text", text: "【答案の画像】\n" });
+      for (const imgBase64 of answerImages) {
+        userContent.push({ type: "image", source: { type: "base64", media_type: detectMediaType(imgBase64), data: imgBase64 } });
+      }
     }
 
-    const promptText = `あなたは公認会計士試験の採点官です。科目は「${subject}」です。以下の問題と答案を採点してください。\n\n【問題】\n${question}\n\n【答案】\n${answer}\n\n${answerImages.length > 0 ? "答案に画像・図が含まれています。その内容も採点対象にしてください。図の正確性・凡例・単位なども評価してください。\n\n" : ""}正誤判定と改善点を丁寧に説明してください。採点・フィードバック後、以下を必ず記載:\n【得点率】XX%\n【論点】論点名1, 論点名2（主要論点を3つ以内でカンマ区切り）\n【誤答論点】論点名（間違えた論点。完答なら「なし」）\n${bookIds.length > 0 ? "【参考ページ】教科書名 p.XX（参照教材の中で関連するページがあれば・複数可）\n" : ""}【解説まとめ】この問題で押さえるべきポイントを3行以内で`;
+    const hasImages = questionImages.length > 0 || answerImages.length > 0;
+    const imageNote = [
+      questionImages.length > 0 ? "問題文に画像が含まれています。画像内の図・表・グラフも問題の一部として採点に考慮してください。" : "",
+      answerImages.length > 0 ? "答案に画像・図が含まれています。その内容も採点対象にしてください。図の正確性・凡例・単位なども評価してください。" : "",
+    ].filter(Boolean).join("\n");
+
+    const promptText = `あなたは公認会計士試験の採点官です。科目は「${subject}」です。以下の問題と答案を採点してください。\n\n【問題】\n${question}\n\n【答案】\n${answer}\n\n${hasImages ? imageNote + "\n\n" : ""}正誤判定と改善点を丁寧に説明してください。採点・フィードバック後、以下を必ず記載:\n【得点率】XX%\n【論点】論点名1, 論点名2（主要論点を3つ以内でカンマ区切り）\n【誤答論点】論点名（間違えた論点。完答なら「なし」）\n${bookIds.length > 0 ? "【参考ページ】教科書名 p.XX（参照教材の中で関連するページがあれば・複数可）\n" : ""}【解説まとめ】この問題で押さえるべきポイントを3行以内で`;
 
     userContent.push({ type: "text", text: promptText });
 

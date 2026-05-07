@@ -21,17 +21,17 @@ const API_BASE_URL = "https://studyapp-production-66d5.up.railway.app";
 const SUBJECTS = ["財務会計論", "管理会計論", "監査論", "企業法", "租税法", "経営学"];
 
 export function computeProgress(phase: string, progress?: number, total?: number): number {
-  const phaseBase: Record<string, number> = {
-    uploading: 10,
-    analyzing_diagrams: 30,
-    saving_mongodb: 70,
-    embedding: 70,
-  };
-  const base = phaseBase[phase] ?? 0;
-  if (phase === "embedding" && typeof progress === "number" && total && total > 0) {
-    return Math.min(99, Math.round(base + (progress / total) * 30));
+  if (phase === "uploading") return 5;
+  if (phase === "analyzing_diagrams") return 20;
+  if (phase === "saving_mongodb") return 50;
+  if (phase === "embedding") {
+    const base = 50;
+    if (typeof progress === "number" && total && total > 0) {
+      return Math.min(95, Math.round(base + (progress / total) * 45));
+    }
+    return base;
   }
-  return base;
+  return 0;
 }
 
 type TextbookMeta = {
@@ -53,6 +53,7 @@ export default function TextbookScreen() {
   const [regBookName, setRegBookName] = useState("");
   const [regDescription, setRegDescription] = useState("");
   const [regLoading, setRegLoading] = useState(false);
+  const [regDone, setRegDone] = useState(false);
   const [regStatusText, setRegStatusText] = useState("アップロード中...");
   const [regProgress, setRegProgress] = useState(0);
   const [regError, setRegError] = useState("");
@@ -95,6 +96,17 @@ export default function TextbookScreen() {
     if (regPollingRef.current) { clearTimeout(regPollingRef.current); regPollingRef.current = null; }
   };
 
+  const resetRegForm = () => {
+    stopPolling();
+    setRegLoading(false);
+    setRegDone(false);
+    setRegProgress(0);
+    setRegError("");
+    setRegBookName("");
+    setRegDescription("");
+    setRegSubject(SUBJECTS[0]);
+  };
+
   const pollJobStatus = useCallback(async (jobId: string) => {
     try {
       const res = await fetch(`${API_BASE_URL}/textbook/register/status/${jobId}`);
@@ -104,15 +116,12 @@ export default function TextbookScreen() {
         stopPolling();
         setRegProgress(100);
         setRegLoading(false);
-        Alert.alert("登録完了", "教科書の登録と埋め込み生成が完了しました");
-        setShowRegister(false);
-        setRegBookName("");
-        setRegDescription("");
-        setRegProgress(0);
+        setRegDone(true);
         await loadBooks();
       } else if (data.status === "error") {
         stopPolling();
         setRegLoading(false);
+        setRegProgress(0);
         setRegError(`処理エラー: ${data.error || "不明なエラー"}`);
       } else {
         const phaseLabels: Record<string, string> = {
@@ -128,6 +137,7 @@ export default function TextbookScreen() {
     } catch {
       stopPolling();
       setRegLoading(false);
+      setRegProgress(0);
       setRegError("状態確認に失敗しました。一覧で登録状況を確認してください。");
     }
   }, [loadBooks]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -181,7 +191,7 @@ export default function TextbookScreen() {
       if (data.error) throw new Error(data.error);
       if (res.status === 202 && data.jobId) {
         setRegStatusText("処理中...");
-        setRegProgress(10);
+        setRegProgress(computeProgress("uploading"));
         await loadBooks();
         regPollingRef.current = setTimeout(() => pollJobStatus(data.jobId), 3000);
       } else {
@@ -238,10 +248,18 @@ export default function TextbookScreen() {
         {/* 教科書リスト */}
         {loading ? (
           <ActivityIndicator size="large" color="#2563eb" style={{ marginTop: 40 }} />
+        ) : books.length === 0 ? (
+          <View style={styles.ctaBanner}>
+            <Text style={styles.ctaBannerTitle}>📂 まだ教科書が登録されていません</Text>
+            <Text style={styles.ctaBannerDesc}>教科書PDFを登録すると、AI採点時に教科書の内容を参照できます。</Text>
+            <TouchableOpacity style={styles.ctaBannerButton} onPress={() => { setShowRegister(true); setRegError(""); }}>
+              <Text style={styles.ctaBannerButtonText}>📎 今すぐ教科書を登録する</Text>
+            </TouchableOpacity>
+          </View>
         ) : filtered.length === 0 ? (
           <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>📂 登録された教科書はありません</Text>
-            <Text style={styles.emptyDesc}>PDFを登録すると、AI採点時に教科書の内容を参照できます。</Text>
+            <Text style={styles.emptyTitle}>📂 該当する教科書はありません</Text>
+            <Text style={styles.emptyDesc}>フィルターを変更してください。</Text>
           </View>
         ) : (
           filtered.map(book => (
@@ -269,79 +287,77 @@ export default function TextbookScreen() {
       </ScrollView>
 
       {/* 登録モーダル */}
-      <Modal visible={showRegister} animationType="slide" onRequestClose={() => { stopPolling(); setRegLoading(false); setShowRegister(false); }}>
+      <Modal visible={showRegister} animationType="slide" onRequestClose={() => { resetRegForm(); setShowRegister(false); }}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <View style={styles.modalContainer}>
             <View style={[styles.modalHeader, { paddingTop: insets.top + 16 }]}>
               <Text style={styles.modalTitle}>📚 教科書を登録</Text>
-              <TouchableOpacity onPress={() => setShowRegister(false)}>
+              <TouchableOpacity onPress={() => { resetRegForm(); setShowRegister(false); }}>
                 <Text style={styles.modalClose}>✕</Text>
               </TouchableOpacity>
             </View>
 
             <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalContent}>
-              <Text style={styles.fieldLabel}>科目 *</Text>
-              <View style={styles.subjectGrid}>
-                {SUBJECTS.map(s => (
-                  <TouchableOpacity
-                    key={s}
-                    style={[styles.subjectChip, regSubject === s && styles.subjectChipActive]}
-                    onPress={() => setRegSubject(s)}
-                  >
-                    <Text style={[styles.subjectChipText, regSubject === s && styles.subjectChipTextActive]}>{s}</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <Text style={styles.fieldLabel}>教科書名 *</Text>
-              <TextInput
-                style={styles.input}
-                value={regBookName}
-                onChangeText={setRegBookName}
-                placeholder="例: 財務会計論テキスト上巻"
-                placeholderTextColor="#94a3b8"
-              />
-
-              <Text style={styles.fieldLabel}>説明（任意）</Text>
-              <TextInput
-                style={styles.input}
-                value={regDescription}
-                onChangeText={setRegDescription}
-                placeholder="例: 2024年度版"
-                placeholderTextColor="#94a3b8"
-              />
-
-              {regError !== "" && (
-                <View style={styles.errorBox}>
-                  <Text style={styles.errorText}>⚠️ {regError}</Text>
+              {regDone ? (
+                <View style={styles.successBox}>
+                  <Text style={styles.successIcon}>✅</Text>
+                  <Text style={styles.successTitle}>登録完了！</Text>
+                  <Text style={styles.successDesc}>教科書の登録と埋め込み生成が完了しました</Text>
                 </View>
-              )}
-
-              <TouchableOpacity
-                style={[styles.registerButton, regLoading && styles.registerButtonDisabled]}
-                onPress={handleRegister}
-                disabled={regLoading}
-              >
-                {regLoading ? (
-                  <View style={styles.registerButtonContent}>
-                    <ActivityIndicator size="small" color="#fff" />
-                    <Text style={styles.registerButtonText}>{regStatusText}</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.registerButtonText}>📎 PDFを選択して登録</Text>
-                )}
-              </TouchableOpacity>
-
-              {regLoading && (
-                <View style={styles.progressContainer}>
+              ) : regLoading ? (
+                <View style={styles.progressBox}>
+                  <Text style={styles.progressStatusText}>{regStatusText}</Text>
                   <View style={styles.progressBarTrack}>
                     <View style={[styles.progressBarFill, { width: `${regProgress}%` as any }]} />
                   </View>
                   <Text style={styles.progressPercent}>{regProgress}%</Text>
                 </View>
-              )}
+              ) : (
+                <>
+                  <Text style={styles.fieldLabel}>科目 *</Text>
+                  <View style={styles.subjectGrid}>
+                    {SUBJECTS.map(s => (
+                      <TouchableOpacity
+                        key={s}
+                        style={[styles.subjectChip, regSubject === s && styles.subjectChipActive]}
+                        onPress={() => setRegSubject(s)}
+                      >
+                        <Text style={[styles.subjectChipText, regSubject === s && styles.subjectChipTextActive]}>{s}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
 
-              <Text style={styles.registerHint}>PDFを選択するとテキスト抽出が開始されます（数十秒かかる場合があります）</Text>
+                  <Text style={styles.fieldLabel}>教科書名 *</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={regBookName}
+                    onChangeText={setRegBookName}
+                    placeholder="例: 財務会計論テキスト上巻"
+                    placeholderTextColor="#94a3b8"
+                  />
+
+                  <Text style={styles.fieldLabel}>説明（任意）</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={regDescription}
+                    onChangeText={setRegDescription}
+                    placeholder="例: 2024年度版"
+                    placeholderTextColor="#94a3b8"
+                  />
+
+                  {regError !== "" && (
+                    <View style={styles.errorBox}>
+                      <Text style={styles.errorText}>⚠️ {regError}</Text>
+                    </View>
+                  )}
+
+                  <TouchableOpacity style={styles.registerButton} onPress={handleRegister}>
+                    <Text style={styles.registerButtonText}>📎 PDFを選択して登録</Text>
+                  </TouchableOpacity>
+
+                  <Text style={styles.registerHint}>PDFを選択するとテキスト抽出が開始されます（数十秒かかる場合があります）</Text>
+                </>
+              )}
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
@@ -489,4 +505,30 @@ const styles = StyleSheet.create({
   progressBarTrack: { height: 8, backgroundColor: "#e2e8f0", borderRadius: 4, overflow: "hidden" },
   progressBarFill: { height: 8, backgroundColor: "#2563eb", borderRadius: 4 },
   progressPercent: { fontSize: 12, color: "#64748b", textAlign: "center", fontWeight: "600" },
+  progressBox: { paddingVertical: 48, alignItems: "center", gap: 16 },
+  progressStatusText: { fontSize: 15, color: "#374151", fontWeight: "600", textAlign: "center" },
+  successBox: { paddingVertical: 64, alignItems: "center", gap: 12 },
+  successIcon: { fontSize: 56 },
+  successTitle: { fontSize: 22, fontWeight: "bold", color: "#16a34a" },
+  successDesc: { fontSize: 14, color: "#64748b", textAlign: "center" },
+  ctaBanner: {
+    backgroundColor: "#eff6ff",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderColor: "#bfdbfe",
+    marginTop: 16,
+    gap: 10,
+  },
+  ctaBannerTitle: { fontSize: 16, fontWeight: "bold", color: "#1e40af", textAlign: "center" },
+  ctaBannerDesc: { fontSize: 13, color: "#3b82f6", textAlign: "center", lineHeight: 20 },
+  ctaBannerButton: {
+    backgroundColor: "#2563eb",
+    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    marginTop: 4,
+  },
+  ctaBannerButtonText: { color: "#fff", fontSize: 14, fontWeight: "bold" },
 });

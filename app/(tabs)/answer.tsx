@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { supabase } from "@/utils/supabase";
 import { updateCautionTopics } from "@/utils/cautionTopics";
@@ -35,6 +35,7 @@ export default function AnswerScreen() {
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   const [subject, setSubject] = useState("財務会計論");
   const [question, setQuestion] = useState("");
@@ -700,6 +701,16 @@ export default function AnswerScreen() {
           <Text style={styles.headerSub}>問題と答案を入力してAI採点</Text>
         </View>
 
+        {/* 教科書未登録 CTA バナー */}
+        {availableBooks.length === 0 && (
+          <View style={styles.ctaBanner}>
+            <Text style={styles.ctaBannerText}>📚 教科書を登録すると採点精度が上がります</Text>
+            <TouchableOpacity style={styles.ctaBannerButton} onPress={() => router.push("/(tabs)/textbook" as any)}>
+              <Text style={styles.ctaBannerButtonText}>教科書を登録する</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* 科目選択 */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>📌 科目</Text>
@@ -1027,6 +1038,10 @@ const styles = StyleSheet.create({
   topicPresent: { fontSize: 14, color: "#15803d" },
   topicMissing: { fontSize: 14, color: "#dc2626" },
   topicIrrelevant: { fontSize: 14, color: "#d97706" },
+  ctaBanner: { backgroundColor: "#eff6ff", borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: "#bfdbfe", flexDirection: "row", alignItems: "center", gap: 12 },
+  ctaBannerText: { flex: 1, fontSize: 13, color: "#1e40af", fontWeight: "600" },
+  ctaBannerButton: { backgroundColor: "#2563eb", paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10 },
+  ctaBannerButtonText: { color: "#fff", fontSize: 13, fontWeight: "bold" },
 });
 
 const markdownStyles = {

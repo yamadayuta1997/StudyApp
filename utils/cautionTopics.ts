@@ -63,15 +63,15 @@ export async function updateCautionTopics(
 
 export async function getOverdueReviewTopics(daysThreshold = 3): Promise<CautionTopic[]> {
   const storage = await readStorage();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  const now = new Date();
+  // Use UTC midnight to match the UTC date strings stored by updateCautionTopics
+  const todayUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
 
   return Object.entries(storage)
     .filter(([, state]) => {
       if (!state.isCaution) return false;
       if (!state.lastReviewed) return true;
-      const last = new Date(state.lastReviewed);
-      const diffDays = Math.floor((today.getTime() - last.getTime()) / (1000 * 60 * 60 * 24));
+      const diffDays = Math.floor((todayUTC - new Date(state.lastReviewed).getTime()) / (1000 * 60 * 60 * 24));
       return diffDays >= daysThreshold;
     })
     .map(([key, state]) => {
@@ -79,7 +79,7 @@ export async function getOverdueReviewTopics(daysThreshold = 3): Promise<Caution
       const subject = key.slice(0, sep);
       const topic = key.slice(sep + 2);
       const daysSinceReview = state.lastReviewed
-        ? Math.floor((today.getTime() - new Date(state.lastReviewed).getTime()) / (1000 * 60 * 60 * 24))
+        ? Math.floor((todayUTC - new Date(state.lastReviewed).getTime()) / (1000 * 60 * 60 * 24))
         : null;
       return { subject, topic, streak: state.streak, lastReviewed: state.lastReviewed, daysSinceReview };
     })

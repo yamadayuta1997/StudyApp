@@ -38,6 +38,8 @@ const TYPE_ICON: Record<string, string> = {
   '論点誤認': '🔴', '思考プロセスミス': '🟡', '計算ミス': '🟠', '前提不足': '🔵',
 };
 
+const LOADING_STEPS = ['読み取り中', '採点中', '品質評価中', '教科書参照中'];
+
 type Feedback = { priority: number; type: string; point: string; color: string };
 type Steps = { issueRecognition: string; premise: string; logic: string; conclusion: string };
 type GradeResult = {
@@ -71,6 +73,7 @@ export default function CompareScreen() {
   const [modelUris, setModelUris] = useState<string[]>([]);
   const [modelB64s, setModelB64s] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [result, setResult] = useState<GradeResult | null>(null);
   const [selectedFeedback, setSelectedFeedback] = useState<Feedback | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -266,15 +269,24 @@ const [usageCount, setUsageCount] = useState(0);
 
     console.log('[compare][analyze] answerImages:', answerB64s.length, 'modelImages:', modelB64s.length, 'promptTips:', promptTips.length);
     setLoading(true);
+    setLoadingStep(0);
     setResult(null);
     setEvalScore(null);
     setImprovements([]);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    const t1 = setTimeout(() => setLoadingStep(1), 18000);
+    const t2 = setTimeout(() => setLoadingStep(2), 55000);
+    const t3 = setTimeout(() => setLoadingStep(3), 70000);
+
     try {
       const deviceId = await getDeviceId();
       const resp = await fetch(`${SERVER}/grade-compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ answerImages: answerB64s, modelAnswerImages: modelB64s, promptTips, deviceId, subject }),
+        signal: controller.signal,
       });
       console.log('[compare][analyze] status:', resp.status);
       const data = await resp.json();
@@ -306,8 +318,17 @@ const [usageCount, setUsageCount] = useState(0);
       }
     } catch (e: any) {
       console.log('[compare][analyze] ERROR:', e.message);
-      Alert.alert('エラー', e.message);
+      if (e.name === 'AbortError') {
+        Alert.alert('タイムアウト', '120秒以上かかりました。再試行してください');
+      } else {
+        Alert.alert('エラー', e.message);
+      }
     } finally {
+      clearTimeout(timeoutId);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      setLoadingStep(0);
       setLoading(false);
     }
   };
@@ -570,12 +591,27 @@ const [usageCount, setUsageCount] = useState(0);
             {loading ? (
               <View style={styles.analyzeBtnInner}>
                 <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.analyzeBtnText}>解析中...（最大60秒）</Text>
+                <Text style={styles.analyzeBtnText}>{LOADING_STEPS[loadingStep]}...（最大120秒）</Text>
               </View>
             ) : (
               <Text style={styles.analyzeBtnText}>🔍 思考ズレを分析する</Text>
             )}
           </TouchableOpacity>
+        )}
+        {loading && (
+          <View style={styles.loadingStepBar}>
+            {LOADING_STEPS.map((step, i) => (
+              <React.Fragment key={step}>
+                <View style={styles.loadingStepItem}>
+                  <View style={[styles.loadingStepDot, i < loadingStep ? styles.loadingStepDone : i === loadingStep ? styles.loadingStepActive : styles.loadingStepPending]} />
+                  <Text style={[styles.loadingStepLabel, i === loadingStep ? styles.loadingStepLabelActive : styles.loadingStepLabelMuted]}>{step}</Text>
+                </View>
+                {i < LOADING_STEPS.length - 1 && (
+                  <View style={[styles.loadingStepLine, i < loadingStep ? styles.loadingStepLineDone : styles.loadingStepLinePending]} />
+                )}
+              </React.Fragment>
+            ))}
+          </View>
         )}
         {!isDev && !limitReached && (
           <Text style={styles.usageText}>
@@ -1009,4 +1045,18 @@ const styles = StyleSheet.create({
   subjectCancelText: { color: '#6B7280', fontSize: 15, fontWeight: '600' },
   subjectConfirmBtn: { flex: 2, backgroundColor: '#007AFF', borderRadius: 12, padding: 14, alignItems: 'center' },
   subjectConfirmText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
+
+  /* ローディングステップインジケーター */
+  loadingStepBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 12, paddingHorizontal: 8 },
+  loadingStepItem: { alignItems: 'center', gap: 4 },
+  loadingStepDot: { width: 10, height: 10, borderRadius: 5 },
+  loadingStepDone: { backgroundColor: '#34C759' },
+  loadingStepActive: { backgroundColor: '#007AFF' },
+  loadingStepPending: { backgroundColor: '#D1D5DB' },
+  loadingStepLabel: { fontSize: 9, fontWeight: '600' as const },
+  loadingStepLabelActive: { color: '#007AFF' },
+  loadingStepLabelMuted: { color: '#9CA3AF' },
+  loadingStepLine: { flex: 1, height: 2, marginHorizontal: 2, marginBottom: 14 },
+  loadingStepLineDone: { backgroundColor: '#34C759' },
+  loadingStepLinePending: { backgroundColor: '#E5E7EB' },
 });

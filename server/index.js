@@ -1092,6 +1092,21 @@ answerSteps: ${JSON.stringify(result.answerSteps)}
   }
 }
 
+// ---- バックグラウンド評価ジョブストア ----
+const evalJobStore = new Map();
+setInterval(() => {
+  const cutoff = Date.now() - 10 * 60 * 1000;
+  for (const [id, job] of evalJobStore) {
+    if (job.createdAt < cutoff) evalJobStore.delete(id);
+  }
+}, 60 * 1000);
+
+app.get("/grade-compare/eval-status/:jobId", (req, res) => {
+  const job = evalJobStore.get(req.params.jobId);
+  if (!job) return res.status(404).json({ error: "job not found" });
+  res.json(job);
+});
+
 app.post("/grade-compare", async (req, res) => {
   try {
     const { answerImage, modelAnswerImage, modelAnswerText, subject, promptTips, deviceId } = req.body;
@@ -1120,7 +1135,7 @@ app.post("/grade-compare", async (req, res) => {
     ];
 
     const needsModelOcr = !modelAnswerText && modelAnswerImages.length > 0;
-    const ocrPromises = [
+    const [answerOcrRes, modelOcrRes] = await Promise.all([
       client.messages.create({
         model: "claude-sonnet-4-6",
         max_tokens: 4096,
@@ -1133,8 +1148,7 @@ app.post("/grade-compare", async (req, res) => {
             messages: [{ role: "user", content: buildOcrContent(modelAnswerImages, MODEL_ANSWER_OCR_PROMPT) }],
           })
         : Promise.resolve(null),
-    ];
-    const [answerOcrRes, modelOcrRes] = await Promise.all(ocrPromises);
+    ]);
     const answerText = answerOcrRes.content[0].text;
     const modelText = modelAnswerText || modelOcrRes?.content[0].text || "";
 
@@ -1197,41 +1211,8 @@ app.post("/grade-compare", async (req, res) => {
       ? `\n\n【過去の改善指示（必ず反映すること）】\n${promptTips.slice(-3).map((t, i) => `${i + 1}. ${t}`).join("\n")}`
       : "";
 
-    // RAGコンテキスト取得を採点と並列で開始（採点結果を待たずに開始可能）
-    const ragContextPromise = (supabase && openaiClient)
-      ? (async () => {
-          try {
-            const issuesText = await extractIssues(answerText, modelText, subject);
-            console.log(`[rag] extracted issues: ${issuesText}`);
-            const embedding = await getEmbedding(issuesText);
-            const hits = await vectorSearch(embedding, subject, 5);
-            if (hits.length > 0) {
-              return hits
-                .map((h, i) => `[${i + 1}] ${h.textbook_id || "教科書"} p.${h.page_num || "?"}: ${h.content.slice(0, 500)}`)
-                .join("\n");
-            }
-          } catch (pgErr) {
-            console.warn("[rag] pgvector search failed:", pgErr.message);
-          }
-          return null;
-        })()
-      : Promise.resolve(null);
-
-    // 評価ループ（最大1リトライ = 計2回）
-    const MAX_RETRIES = 1;
-    let result, evalScore = 70, evalImprovements = [], retryCount = 0;
-
-    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-      let analysisRes;
-      try {
-        analysisRes = await client.messages.create({
-          model: "claude-sonnet-4-6",
-          max_tokens: 4096,
-          tools: [GRADE_TOOL],
-          tool_choice: { type: "tool", name: "grade_answer" },
-          messages: [{
-            role: "user",
-            content: `あなたはCPA（公認会計士）試験の答案添削AIです。
+    // 採点プロンプト（ホットパス・バックグラウンドリトライ共用）
+    const gradingUserContent = `あなたはCPA（公認会計士）試験の答案添削AIです。
 科目: ${subject || "不明"}
 
 【受験生の答案】
@@ -1255,180 +1236,229 @@ ${modelText}
 - 図・グラフ: 軸ラベル・種類が正しく数値のみ異なる場合 → 50〜70点相当
 - 図表の形式が根本的に誤っている（借方・貸方が逆、構造崩壊など）場合 → 0〜20点
 - 手書き図表は読み取れる部分を最大限評価し、不鮮明な箇所は受験生に有利に解釈する
-- 図表形式の誤りは type: "図表形式ミス" で指摘する${tipsContext}`,
-          }],
-        });
-      } catch (genErr) {
-        console.error(`[grade-compare] attempt ${attempt + 1} generation error:`, genErr.message);
-        if (attempt === MAX_RETRIES) return res.status(500).json({ error: genErr.message });
-        continue;
-      }
+- 図表形式の誤りは type: "図表形式ミス" で指摘する${tipsContext}`;
 
-      // stop_reason が max_tokens の場合は入力が途中で打ち切られている
-      if (analysisRes.stop_reason === "max_tokens") {
-        console.error(`[grade-compare] attempt ${attempt + 1} TRUNCATED (stop_reason=max_tokens)`);
-        if (attempt === MAX_RETRIES) return res.status(500).json({ error: "採点レスポンスが長すぎて取得できませんでした。再度お試しください。" });
-        continue;
-      }
+    // ---- ホットパス: 採点1回のみ実行して即時レスポンス ----
+    let analysisRes;
+    try {
+      analysisRes = await client.messages.create({
+        model: "claude-sonnet-4-6",
+        max_tokens: 4096,
+        tools: [GRADE_TOOL],
+        tool_choice: { type: "tool", name: "grade_answer" },
+        messages: [{ role: "user", content: gradingUserContent }],
+      });
+    } catch (genErr) {
+      console.error("[grade-compare] generation error:", genErr.message);
+      return res.status(500).json({ error: genErr.message });
+    }
 
-      const toolBlock = analysisRes.content.find((b) => b.type === "tool_use" && b.name === "grade_answer");
-      if (!toolBlock) {
-        console.error(`[grade-compare] attempt ${attempt + 1} tool_use block not found`);
-        if (attempt === MAX_RETRIES) return res.status(500).json({ error: "解析結果の取得に失敗しました" });
-        continue;
-      }
+    if (analysisRes.stop_reason === "max_tokens") {
+      console.error("[grade-compare] TRUNCATED (stop_reason=max_tokens)");
+      return res.status(500).json({ error: "採点レスポンスが長すぎて取得できませんでした。再度お試しください。" });
+    }
 
-      result = toolBlock.input;
+    const toolBlock = analysisRes.content.find((b) => b.type === "tool_use" && b.name === "grade_answer");
+    if (!toolBlock) {
+      console.error("[grade-compare] tool_use block not found");
+      return res.status(500).json({ error: "解析結果の取得に失敗しました" });
+    }
 
-      // score が数値でない場合は truncation による空オブジェクトと判断してリトライ
-      if (typeof result.score !== "number") {
-        console.error(`[grade-compare] attempt ${attempt + 1} score missing — likely truncated input:`, JSON.stringify(result).slice(0, 200));
-        if (attempt === MAX_RETRIES) return res.status(500).json({ error: "採点結果の取得に失敗しました。再度お試しください。" });
-        continue;
-      }
+    let result = toolBlock.input;
+    if (typeof result.score !== "number") {
+      console.error("[grade-compare] score missing:", JSON.stringify(result).slice(0, 200));
+      return res.status(500).json({ error: "採点結果の取得に失敗しました。再度お試しください。" });
+    }
 
-      if (!Array.isArray(result.feedbacks) || result.feedbacks.length === 0) {
-        result.feedbacks = [{ priority: 1, type: "前提不足", point: "解析結果から具体的なフィードバックを抽出できませんでした。再度試行してください。", color: "yellow" }];
-      }
-      result.feedbacks = result.feedbacks.slice(0, 5);
-      retryCount = attempt;
-      console.log(`[grade-compare] attempt ${attempt + 1} score:`, result.score, "feedbacks:", result.feedbacks.length);
+    if (!Array.isArray(result.feedbacks) || result.feedbacks.length === 0) {
+      result.feedbacks = [{ priority: 1, type: "前提不足", point: "解析結果から具体的なフィードバックを抽出できませんでした。再度試行してください。", color: "yellow" }];
+    }
+    result.feedbacks = result.feedbacks.slice(0, 5);
+    console.log("[grade-compare] score:", result.score, "feedbacks:", result.feedbacks.length);
 
-      // 品質評価（最後の試行ではスキップ）
-      if (attempt < MAX_RETRIES) {
+    // ジョブIDを発行して採点結果を即時返却
+    const jobId = `j${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    evalJobStore.set(jobId, { status: "pending", createdAt: Date.now() });
+    res.json({ ...result, jobId });
+
+    // ---- バックグラウンド: 品質評価 → 必要時リトライ → Supabase保存 → RAG ----
+    (async () => {
+      let finalResult = result;
+      let evalScore = 70, evalImprovements = [];
+      let textbookRef;
+
+      // 品質評価
+      try {
         const evalResult = await evaluateGrade(result, answerText, modelText);
         evalScore = evalResult.score;
         evalImprovements = evalResult.improvements;
-        console.log(`[grade-compare] attempt ${attempt + 1} evalScore:`, evalScore);
+        console.log("[grade-compare][bg] evalScore:", evalScore);
 
-        if (evalScore >= 60) {
-          console.log(`[grade-compare] quality OK (evalScore=${evalScore}), proceeding`);
-          retryCount = attempt;
-          break;
-        }
-        console.log(`[grade-compare] evalScore=${evalScore} < 60, retry ${attempt + 2}/${MAX_RETRIES + 1}`);
-      } else {
-        retryCount = attempt;
-        break;
-      }
-    }
-
-    result.evalScore = evalScore;
-    result.retryCount = retryCount;
-    result.improvements = evalImprovements;
-
-    // Supabase history 保存（失敗しても採点結果は返す）
-    if (supabase) {
-      try {
-        const { error } = await supabase.from("history").insert({
-          device_id:   deviceId || "unknown",
-          score:       result.score ?? null,
-          subject:     subject   || null,
-          result_json: result,
-        });
-        if (error) console.error("[grade-compare][supabase] insert error:", error.message);
-        else       console.log("[grade-compare][supabase] history saved. score:", result.score);
-      } catch (sbErr) {
-        console.error("[grade-compare][supabase] unexpected error:", sbErr.message);
-      }
-    }
-
-    // 教科書RAG — 並列取得済みの pgvector 結果 → MongoDB regex → textbooks.json フォールバック
-    if (result.feedbacks && result.feedbacks.length > 0) {
-      try {
-        // pgvector: 並列取得済みの結果を受け取る
-        let ragContext = await ragContextPromise;
-        if (ragContext) {
-          console.log(`[rag] pgvector context ready`);
-        }
-
-        // キーワード抽出（MongoDB・JSONフォールバック共用）
-        const stepTexts = [
-          result.feedbacks?.[0]?.point,
-          result.answerSteps?.issueRecognition,
-          result.answerSteps?.premise,
-          result.answerSteps?.logic,
-          result.answerSteps?.conclusion,
-          result.modelSteps?.issueRecognition,
-          result.modelSteps?.premise,
-          result.modelSteps?.logic,
-          result.modelSteps?.conclusion,
-        ].filter(Boolean).join(" ");
-        const keywords = [...new Set(
-          (stepTexts.match(/[一-龯ぁ-んァ-ヶーA-Za-z0-9]{2,20}/g) || [])
-            .map(k => k.trim())
-            .filter(k => !["不明", "なし", "自分", "模範", "答案", "解答"].includes(k))
-        )].slice(0, 8);
-
-        // MongoDB regex フォールバック
-        if (!ragContext && isMongoEnabled && Chunk) {
+        if (evalScore < 60) {
+          console.log("[grade-compare][bg] evalScore < 60, retrying grade");
           try {
-            if (keywords.length > 0) {
-              const filter = { content: { $regex: keywords.map(escapeRegExp).join("|"), $options: "i" } };
-              if (subject) filter.subject = subject;
-              const chunks = await Chunk.find(filter).limit(5).lean();
-              console.log(`[rag] MongoDB hits=${chunks.length} subject=${subject || "all"} keywords=${keywords.join(",")}`);
-              if (chunks.length > 0) {
-                ragContext = chunks
-                  .map((c, i) => `[${i + 1}] ${c.textbookId || "教科書"} p.${c.pageNum}: ${c.content.slice(0, 500)}`)
-                  .join("\n");
+            const retryRes = await client.messages.create({
+              model: "claude-sonnet-4-6",
+              max_tokens: 4096,
+              tools: [GRADE_TOOL],
+              tool_choice: { type: "tool", name: "grade_answer" },
+              messages: [{ role: "user", content: gradingUserContent }],
+            });
+            if (retryRes.stop_reason !== "max_tokens") {
+              const retryBlock = retryRes.content.find((b) => b.type === "tool_use" && b.name === "grade_answer");
+              if (retryBlock && typeof retryBlock.input.score === "number") {
+                finalResult = retryBlock.input;
+                if (!Array.isArray(finalResult.feedbacks) || finalResult.feedbacks.length === 0) {
+                  finalResult.feedbacks = result.feedbacks;
+                }
+                finalResult.feedbacks = finalResult.feedbacks.slice(0, 5);
+                console.log("[grade-compare][bg] retry score:", finalResult.score);
               }
             }
-          } catch (mongoErr) {
-            console.error("[rag] MongoDB search error, falling back to JSON:", mongoErr.message);
+          } catch (retryErr) {
+            console.error("[grade-compare][bg] retry error:", retryErr.message);
           }
         }
+      } catch (evalErr) {
+        console.error("[grade-compare][bg] eval error:", evalErr.message);
+      }
 
-        // textbooks.json フォールバック
-        if (!ragContext) {
-          const fallbackEntries = [...textbookCache.entries()]
-            .filter(([, book]) => !subject || book.subject === subject);
-          let fallbackPages = [];
-          for (const [bookId, book] of fallbackEntries) {
-            for (const page of book.pages || []) {
-              const combined = buildPageContent(page);
-              if (keywords.length === 0 || keywords.some(k => combined.includes(k))) {
-                fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: combined });
+      // Supabase history 保存
+      if (supabase) {
+        try {
+          const { error } = await supabase.from("history").insert({
+            device_id:   deviceId || "unknown",
+            score:       finalResult.score ?? null,
+            subject:     subject   || null,
+            result_json: { ...finalResult, evalScore },
+          });
+          if (error) console.error("[grade-compare][supabase] insert error:", error.message);
+          else       console.log("[grade-compare][supabase] history saved. score:", finalResult.score);
+        } catch (sbErr) {
+          console.error("[grade-compare][supabase] unexpected error:", sbErr.message);
+        }
+      }
+
+      // 教科書RAG — pgvector → MongoDB regex → textbooks.json フォールバック
+      if (finalResult.feedbacks && finalResult.feedbacks.length > 0) {
+        try {
+          let ragContext = null;
+
+          if (supabase && openaiClient) {
+            try {
+              const issuesText = await extractIssues(answerText, modelText, subject);
+              console.log(`[rag] extracted issues: ${issuesText}`);
+              const embedding = await getEmbedding(issuesText);
+              const hits = await vectorSearch(embedding, subject, 5);
+              if (hits.length > 0) {
+                ragContext = hits
+                  .map((h, i) => `[${i + 1}] ${h.textbook_id || "教科書"} p.${h.page_num || "?"}: ${h.content.slice(0, 500)}`)
+                  .join("\n");
+                console.log("[rag] pgvector context ready");
               }
-              if (fallbackPages.length >= 5) break;
+            } catch (pgErr) {
+              console.warn("[rag] pgvector search failed:", pgErr.message);
             }
-            if (fallbackPages.length >= 5) break;
           }
-          if (fallbackPages.length === 0) {
-            for (const [bookId, book] of fallbackEntries) {
-              for (const page of book.pages || []) {
-                fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: buildPageContent(page) });
+
+          if (!ragContext) {
+            const stepTexts = [
+              finalResult.feedbacks?.[0]?.point,
+              finalResult.answerSteps?.issueRecognition,
+              finalResult.answerSteps?.premise,
+              finalResult.answerSteps?.logic,
+              finalResult.answerSteps?.conclusion,
+              finalResult.modelSteps?.issueRecognition,
+              finalResult.modelSteps?.premise,
+              finalResult.modelSteps?.logic,
+              finalResult.modelSteps?.conclusion,
+            ].filter(Boolean).join(" ");
+            const keywords = [...new Set(
+              (stepTexts.match(/[一-龯ぁ-んァ-ヶーA-Za-z0-9]{2,20}/g) || [])
+                .map(k => k.trim())
+                .filter(k => !["不明", "なし", "自分", "模範", "答案", "解答"].includes(k))
+            )].slice(0, 8);
+
+            if (isMongoEnabled && Chunk) {
+              try {
+                if (keywords.length > 0) {
+                  const filter = { content: { $regex: keywords.map(escapeRegExp).join("|"), $options: "i" } };
+                  if (subject) filter.subject = subject;
+                  const chunks = await Chunk.find(filter).limit(5).lean();
+                  console.log(`[rag] MongoDB hits=${chunks.length} subject=${subject || "all"} keywords=${keywords.join(",")}`);
+                  if (chunks.length > 0) {
+                    ragContext = chunks
+                      .map((c, i) => `[${i + 1}] ${c.textbookId || "教科書"} p.${c.pageNum}: ${c.content.slice(0, 500)}`)
+                      .join("\n");
+                  }
+                }
+              } catch (mongoErr) {
+                console.error("[rag] MongoDB search error, falling back to JSON:", mongoErr.message);
+              }
+            }
+
+            if (!ragContext) {
+              const fallbackEntries = [...textbookCache.entries()]
+                .filter(([, book]) => !subject || book.subject === subject);
+              let fallbackPages = [];
+              for (const [bookId, book] of fallbackEntries) {
+                for (const page of book.pages || []) {
+                  const combined = buildPageContent(page);
+                  if (keywords.length === 0 || keywords.some(k => combined.includes(k))) {
+                    fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: combined });
+                  }
+                  if (fallbackPages.length >= 5) break;
+                }
                 if (fallbackPages.length >= 5) break;
               }
-              if (fallbackPages.length >= 5) break;
+              if (fallbackPages.length === 0) {
+                for (const [bookId, book] of fallbackEntries) {
+                  for (const page of book.pages || []) {
+                    fallbackPages.push({ bookId, bookName: book.bookName, pageNum: page.pageNum, text: buildPageContent(page) });
+                    if (fallbackPages.length >= 5) break;
+                  }
+                  if (fallbackPages.length >= 5) break;
+                }
+              }
+              if (fallbackPages.length > 0) {
+                ragContext = fallbackPages
+                  .map((p, i) => `[${i + 1}] ${p.bookName || p.bookId} p.${p.pageNum}: ${p.text.slice(0, 500)}`)
+                  .join("\n");
+                console.log(`[rag] JSON fallback hits=${fallbackPages.length} subject=${subject || "all"}`);
+              }
             }
           }
-          if (fallbackPages.length > 0) {
-            ragContext = fallbackPages
-              .map((p, i) => `[${i + 1}] ${p.bookName || p.bookId} p.${p.pageNum}: ${p.text.slice(0, 500)}`)
-              .join("\n");
-            console.log(`[rag] JSON fallback hits=${fallbackPages.length} subject=${subject || "all"}`);
-          }
-        }
 
-        if (ragContext) {
-          const ragRes = await client.messages.create({
-            model: "claude-haiku-4-5-20251001",
-            max_tokens: 400,
-            messages: [{
-              role: "user",
-              content: `以下の教科書記述を参考に添削してください。指摘内容に関連する記述を100字以内で引用してください。なければ空文字で返してください。
-指摘: ${result.feedbacks[0].point}
+          if (ragContext) {
+            const ragRes = await client.messages.create({
+              model: "claude-haiku-4-5-20251001",
+              max_tokens: 400,
+              messages: [{
+                role: "user",
+                content: `以下の教科書記述を参考に添削してください。指摘内容に関連する記述を100字以内で引用してください。なければ空文字で返してください。
+指摘: ${finalResult.feedbacks[0].point}
 教科書記述:
 ${ragContext}`,
-            }],
-          });
-          result.textbookRef = ragRes.content[0].text.trim();
-        }
-      } catch (_) {}
-    }
+              }],
+            });
+            textbookRef = ragRes.content[0].text.trim() || undefined;
+          }
+        } catch (_) {}
+      }
 
-    res.json(result);
+      evalJobStore.set(jobId, {
+        status: "done",
+        createdAt: Date.now(),
+        evalScore,
+        improvements: evalImprovements,
+        textbookRef: textbookRef ?? undefined,
+      });
+      console.log("[grade-compare][bg] job done:", jobId, "evalScore:", evalScore);
+    })().catch(bgErr => {
+      console.error("[grade-compare][bg] fatal:", bgErr.message);
+      evalJobStore.set(jobId, { status: "done", createdAt: Date.now(), evalScore: 70, improvements: [] });
+    });
+
   } catch (err) {
     console.error("/grade-compare error:", err);
     res.status(500).json({ error: err.message });

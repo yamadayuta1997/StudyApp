@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { moveItem } from '@/utils/imageReorder';
 import { DAILY_LIMIT, checkAndIncrement, getDeviceId, getUsageCount, isDevDevice } from '@/utils/usageLimit';
 import { updateCautionTopics } from '@/utils/cautionTopics';
@@ -38,7 +38,7 @@ const TYPE_ICON: Record<string, string> = {
   '論点誤認': '🔴', '思考プロセスミス': '🟡', '計算ミス': '🟠', '前提不足': '🔵',
 };
 
-const LOADING_STEPS = ['読み取り中', '採点中', '品質評価中', '教科書参照中'];
+const LOADING_STEPS = ['読み取り中', '採点中'];
 
 type Feedback = { priority: number; type: string; point: string; color: string };
 type Steps = { issueRecognition: string; premise: string; logic: string; conclusion: string };
@@ -83,6 +83,8 @@ const [usageCount, setUsageCount] = useState(0);
   const [isDev, setIsDev] = useState(false);
   const [evalScore, setEvalScore] = useState<number | null>(null);
   const [improvements, setImprovements] = useState<string[]>([]);
+  const [evalPending, setEvalPending] = useState(false);
+  const evalPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [promptTips, setPromptTips] = useState<string[]>([]);
   const [showOverlay, setShowOverlay] = useState(true);
   const [subject, setSubject] = useState('財務会計論');
@@ -257,6 +259,13 @@ const [usageCount, setUsageCount] = useState(0);
   const analyze = async () => {
     if (answerB64s.length === 0 || modelB64s.length === 0) { Alert.alert('答案と模範解答の両方が必要です'); return; }
 
+    // 前回のポーリングが残っていればクリア
+    if (evalPollRef.current) {
+      clearInterval(evalPollRef.current);
+      evalPollRef.current = null;
+      setEvalPending(false);
+    }
+
     // 利用回数チェック
     const usage = await checkAndIncrement();
     setUsageCount(usage.count);
@@ -275,10 +284,8 @@ const [usageCount, setUsageCount] = useState(0);
     setImprovements([]);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 120000);
+    const timeoutId = setTimeout(() => controller.abort(), 90000);
     const t1 = setTimeout(() => setLoadingStep(1), 18000);
-    const t2 = setTimeout(() => setLoadingStep(2), 55000);
-    const t3 = setTimeout(() => setLoadingStep(3), 70000);
 
     try {
       const deviceId = await getDeviceId();
@@ -300,34 +307,77 @@ const [usageCount, setUsageCount] = useState(0);
         feedbacks: Array.isArray(data.feedbacks) ? data.feedbacks.slice(0, 5) : [],
         answerSteps: data.answerSteps ?? { issueRecognition: '-', premise: '-', logic: '-', conclusion: '-' },
         modelSteps: data.modelSteps ?? { issueRecognition: '-', premise: '-', logic: '-', conclusion: '-' },
-        textbookRef: data.textbookRef ?? undefined,
+        textbookRef: undefined,
       };
-      const es = typeof data.evalScore === 'number' ? data.evalScore : null;
-      const imps: string[] = Array.isArray(data.improvements) ? data.improvements : [];
-      console.log('[compare][analyze] safe score:', safe.score, 'evalScore:', es, 'retryCount:', data.retryCount, 'improvements:', imps.length);
+      console.log('[compare][analyze] safe score:', safe.score, 'jobId:', data.jobId);
       setResult(safe);
-      setEvalScore(es);
-      setImprovements(imps);
-      await saveResult(safe, imps);
+      await saveResult(safe, []);
 
-      // 科目を論点名の代わりに使い、スコアで正誤を判定
+      // スコアで要注意論点を即時更新
       if (safe.score >= 70) {
         await updateCautionTopics([], [subject], subject);
       } else if (safe.score < 60) {
         await updateCautionTopics([subject], [], subject);
       }
+
+      // 品質評価・RAG結果をポーリングで取得
+      if (data.jobId) {
+        setEvalPending(true);
+        let pollCount = 0;
+        const jobId: string = data.jobId;
+        evalPollRef.current = setInterval(async () => {
+          pollCount++;
+          try {
+            const evalResp = await fetch(`${SERVER}/grade-compare/eval-status/${jobId}`);
+            if (!evalResp.ok) {
+              if (pollCount >= 20) {
+                clearInterval(evalPollRef.current!);
+                evalPollRef.current = null;
+                setEvalPending(false);
+              }
+              return;
+            }
+            const evalData = await evalResp.json();
+            if (evalData.status === 'done' || pollCount >= 20) {
+              clearInterval(evalPollRef.current!);
+              evalPollRef.current = null;
+              setEvalPending(false);
+              if (typeof evalData.evalScore === 'number') setEvalScore(evalData.evalScore);
+              const imps: string[] = Array.isArray(evalData.improvements) ? evalData.improvements : [];
+              setImprovements(imps);
+              if (evalData.textbookRef) {
+                setResult(prev => prev ? { ...prev, textbookRef: evalData.textbookRef } : prev);
+              }
+              if (imps.length > 0) {
+                const raw = await AsyncStorage.getItem('compare_prompt_tips');
+                const current: string[] = raw ? JSON.parse(raw) : [];
+                const newTips = [...current, ...imps].slice(-10);
+                await AsyncStorage.setItem('compare_prompt_tips', JSON.stringify(newTips));
+                setPromptTips(newTips);
+                console.log('[compare][poll] promptTips updated:', newTips.length);
+              }
+              console.log('[compare][poll] done, evalScore:', evalData.evalScore);
+            }
+          } catch (e: any) {
+            console.log('[compare][poll] error:', e.message);
+            if (pollCount >= 20) {
+              clearInterval(evalPollRef.current!);
+              evalPollRef.current = null;
+              setEvalPending(false);
+            }
+          }
+        }, 3000);
+      }
     } catch (e: any) {
       console.log('[compare][analyze] ERROR:', e.message);
       if (e.name === 'AbortError') {
-        Alert.alert('タイムアウト', '120秒以上かかりました。再試行してください');
+        Alert.alert('タイムアウト', '90秒以上かかりました。再試行してください');
       } else {
         Alert.alert('エラー', e.message);
       }
     } finally {
       clearTimeout(timeoutId);
       clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
       setLoadingStep(0);
       setLoading(false);
     }
@@ -680,6 +730,14 @@ const [usageCount, setUsageCount] = useState(0);
               );
             })}
 
+            {/* 品質評価ポーリング中インジケーター */}
+            {evalPending && (
+              <View style={styles.evalPendingRow}>
+                <ActivityIndicator size="small" color="#6B7280" />
+                <Text style={styles.evalPendingText}>品質評価・教科書参照中...</Text>
+              </View>
+            )}
+
             {/* 品質評価バッジ */}
             {evalScore !== null && (() => {
               const qual = evalScore >= 80 ? { label: '高品質', color: '#065F46', bg: '#D1FAE5' }
@@ -907,6 +965,10 @@ const styles = StyleSheet.create({
   modalOkBtn: { borderRadius: 12, padding: 14, alignItems: 'center' },
   modalOkText: { color: '#fff', fontSize: 15, fontWeight: '700' },
   overlayChevron: { color: '#8E8E93', fontSize: 16, fontWeight: '600', alignSelf: 'center' },
+
+  /* 品質評価ポーリング */
+  evalPendingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  evalPendingText: { fontSize: 12, color: '#6B7280' },
 
   /* 評価ループ */
   evalBadge: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 12, alignItems: 'center' },

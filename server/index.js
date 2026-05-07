@@ -669,7 +669,7 @@ app.post("/textbook/chunks-by-pages", async (req, res) => {
 app.post("/grade", async (req, res) => {
   try {
     const { question, answer, subject, bookIds = [], questionImages = [], answerImages = [],
-            sourceBookId, sourceFromPage, sourceToPage, deviceId } = req.body;
+            sourceBookId, sourceFromPage, sourceToPage, deviceId, userId } = req.body;
     if (!question || !answer || !subject) {
       return res.status(400).json({ error: "question・answer・subject は必須です。" });
     }
@@ -808,7 +808,7 @@ app.post("/grade", async (req, res) => {
     if (supabase) {
       try {
         const { error: sbErr } = await supabase.from("history").insert({
-          device_id:   deviceId || "unknown",
+          device_id:   userId || deviceId || "unknown",
           score:       score    ?? null,
           subject:     subject  || null,
           result_json: { result: resultText, score, topics, wrongTopics, refPages, summary },
@@ -1109,7 +1109,7 @@ app.get("/grade-compare/eval-status/:jobId", (req, res) => {
 
 app.post("/grade-compare", async (req, res) => {
   try {
-    const { answerImage, modelAnswerImage, modelAnswerText, subject, promptTips, deviceId } = req.body;
+    const { answerImage, modelAnswerImage, modelAnswerText, subject, promptTips, deviceId, userId } = req.body;
 
     // 複数ページ対応: 配列優先、単一画像は後方互換
     const answerImages = Array.isArray(req.body.answerImages) && req.body.answerImages.length > 0
@@ -1327,7 +1327,7 @@ ${modelText}
       if (supabase) {
         try {
           const { error } = await supabase.from("history").insert({
-            device_id:   deviceId || "unknown",
+            device_id:   userId || deviceId || "unknown",
             score:       finalResult.score ?? null,
             subject:     subject   || null,
             result_json: { ...finalResult, evalScore },

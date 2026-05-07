@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
+import { supabase } from "@/utils/supabase";
 import { getCautionTopics, getOverdueReviewTopics, CautionTopic } from "@/utils/cautionTopics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -79,6 +80,17 @@ export default function HomeScreen() {
     await AsyncStorage.setItem("userName", trimmed);
     setUserName(trimmed);
     setEditModalVisible(false);
+  };
+
+  const handleLogout = () => {
+    Alert.alert("ログアウト", "ログアウトしますか？", [
+      { text: "キャンセル", style: "cancel" },
+      {
+        text: "ログアウト",
+        style: "destructive",
+        onPress: async () => { await supabase.auth.signOut(); },
+      },
+    ]);
   };
 
   const loadStats = async () => {
@@ -227,6 +239,9 @@ export default function HomeScreen() {
             }}
           >
             <Text style={styles.editButtonText}>編集</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Text style={styles.logoutButtonText}>ログアウト</Text>
           </TouchableOpacity>
         </View>
 
@@ -428,6 +443,16 @@ const styles = StyleSheet.create({
     borderColor: "#bfdbfe",
   },
   editButtonText: { fontSize: 12, color: "#2563eb", fontWeight: "600" },
+  logoutButton: {
+    marginLeft: 8,
+    backgroundColor: "#fef2f2",
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+  },
+  logoutButtonText: { fontSize: 12, color: "#dc2626", fontWeight: "600" },
 
   // Stats
   sectionCard: {

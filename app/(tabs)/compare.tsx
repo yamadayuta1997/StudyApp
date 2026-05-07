@@ -3,7 +3,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
 import { moveItem } from '@/utils/imageReorder';
-import { DAILY_LIMIT, checkAndIncrement, getDeviceId, getUsageCount, isDevDevice } from '@/utils/usageLimit';
+import { DAILY_LIMIT, checkAndIncrement, getUsageCount, isDevDevice } from '@/utils/usageLimit';
+import { supabase } from '@/utils/supabase';
 import { updateCautionTopics } from '@/utils/cautionTopics';
 import { isCloseEnough, jaccardSim } from '@/utils/jaccardSim';
 import {
@@ -288,11 +289,12 @@ const [usageCount, setUsageCount] = useState(0);
     const t1 = setTimeout(() => setLoadingStep(1), 18000);
 
     try {
-      const deviceId = await getDeviceId();
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id ?? "unknown";
       const resp = await fetch(`${SERVER}/grade-compare`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answerImages: answerB64s, modelAnswerImages: modelB64s, promptTips, deviceId, subject }),
+        body: JSON.stringify({ answerImages: answerB64s, modelAnswerImages: modelB64s, promptTips, userId, subject }),
         signal: controller.signal,
       });
       console.log('[compare][analyze] status:', resp.status);

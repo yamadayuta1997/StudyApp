@@ -3,7 +3,7 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useState } from "react";
-import { getDeviceId } from "@/utils/usageLimit";
+import { supabase } from "@/utils/supabase";
 import { updateCautionTopics } from "@/utils/cautionTopics";
 import {
   ActivityIndicator,
@@ -310,12 +310,13 @@ export default function AnswerScreen() {
     setTopicList([]);
     setTopicEvaluation(null);
     try {
-      const deviceId = await getDeviceId();
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id ?? "unknown";
       const res = await fetch(`${API_BASE_URL}/grade`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          question, answer, subject, deviceId,
+          question, answer, subject, userId,
           bookIds: [...selectedBookIds],
           questionImages: questionImages.map(i => i.base64),
           answerImages: answerImages.map(i => i.base64),

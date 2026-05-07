@@ -1,3 +1,5 @@
+import NetInfo from '@react-native-community/netinfo';
+
 export const API_BASE_URL = "https://studyapp-production-66d5.up.railway.app";
 
 export type TextbookMeta = {
@@ -16,6 +18,11 @@ async function apiFetch<T>(
   options?: RequestInit,
   timeoutMs?: number,
 ): Promise<T> {
+  const netState = await NetInfo.fetch();
+  if (!netState.isConnected) {
+    throw new Error('オフラインです。接続を確認してください');
+  }
+
   let controller: AbortController | undefined;
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
 

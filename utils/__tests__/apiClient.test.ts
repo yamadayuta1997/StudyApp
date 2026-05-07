@@ -11,9 +11,17 @@ jest.spyOn(global, "AbortController").mockImplementation(() => ({
   signal: {} as AbortSignal,
 }));
 
+// NetInfo をモック（デフォルトはオンライン）
+const mockNetInfoFetch = jest.fn().mockResolvedValue({ isConnected: true });
+jest.mock("@react-native-community/netinfo", () => ({
+  fetch: () => mockNetInfoFetch(),
+  addEventListener: jest.fn(() => jest.fn()),
+}));
+
 beforeEach(() => {
   mockFetch.mockReset();
   mockAbort.mockReset();
+  mockNetInfoFetch.mockResolvedValue({ isConnected: true });
 });
 
 // --- helpers ---
@@ -30,6 +38,16 @@ function okJson(body: unknown) {
 describe("API_BASE_URL", () => {
   test("Railway の URL が設定されている", () => {
     expect(API_BASE_URL).toBe("https://studyapp-production-66d5.up.railway.app");
+  });
+});
+
+// ===== オフライン時のスキップ =====
+
+describe("オフライン時のリクエストスキップ", () => {
+  test("isConnected が false のとき fetch を呼ばずにエラーを throw する", async () => {
+    mockNetInfoFetch.mockResolvedValue({ isConnected: false });
+    await expect(apiClient.listTextbooks()).rejects.toThrow("オフラインです。接続を確認してください");
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 

@@ -1,6 +1,7 @@
 import * as DocumentPicker from "expo-document-picker";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useRef, useState } from "react";
+import { apiClient, TextbookMeta } from "@/utils/apiClient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
@@ -15,8 +16,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-
-const API_BASE_URL = "https://studyapp-production-66d5.up.railway.app";
 
 const SUBJECTS = ["財務会計論", "管理会計論", "監査論", "企業法", "租税法", "経営学"];
 
@@ -33,15 +32,6 @@ export function computeProgress(phase: string, progress?: number, total?: number
   }
   return 0;
 }
-
-type TextbookMeta = {
-  bookId: string;
-  subject: string;
-  bookName: string;
-  description: string;
-  totalPages: number;
-  registeredAt: string;
-};
 
 export default function TextbookScreen() {
   const insets = useSafeAreaInsets();
@@ -62,9 +52,8 @@ export default function TextbookScreen() {
   const loadBooks = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/textbook/list`);
-      const data = await res.json();
-      setBooks(data.books || []);
+      const books = await apiClient.listTextbooks();
+      setBooks(books);
     } catch {
       setBooks([]);
     } finally {
@@ -82,7 +71,7 @@ export default function TextbookScreen() {
         style: "destructive",
         onPress: async () => {
           try {
-            await fetch(`${API_BASE_URL}/textbook/${encodeURIComponent(bookId)}`, { method: "DELETE" });
+            await apiClient.deleteTextbook(bookId);
             await loadBooks();
           } catch {
             Alert.alert("エラー", "削除に失敗しました。");
@@ -109,9 +98,7 @@ export default function TextbookScreen() {
 
   const pollJobStatus = useCallback(async (jobId: string) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/textbook/register/status/${jobId}`);
-      if (!res.ok) throw new Error("ジョブが見つかりません。");
-      const data = await res.json();
+      const data = await apiClient.pollRegisterStatus(jobId);
       if (data.status === "done") {
         stopPolling();
         setRegProgress(100);
@@ -178,18 +165,9 @@ export default function TextbookScreen() {
     formData.append("bookName", regBookName.trim());
     formData.append("description", regDescription.trim());
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000);
     try {
-      const res = await fetch(`${API_BASE_URL}/textbook/register`, {
-        method: "POST",
-        body: formData,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      if (res.status === 202 && data.jobId) {
+      const data = await apiClient.registerTextbook(formData);
+      if (data.jobId) {
         setRegStatusText("処理中...");
         setRegProgress(computeProgress("uploading"));
         await loadBooks();
@@ -203,7 +181,6 @@ export default function TextbookScreen() {
         await loadBooks();
       }
     } catch (e: any) {
-      clearTimeout(timeoutId);
       setRegLoading(false);
       setRegError(e.name === "AbortError"
         ? "アップロードがタイムアウトしました（60秒）。ネットワーク環境をご確認ください。"

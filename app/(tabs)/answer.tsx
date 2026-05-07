@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { supabase } from "@/utils/supabase";
 import { updateCautionTopics } from "@/utils/cautionTopics";
+import { apiClient, TextbookMeta } from "@/utils/apiClient";
 import {
   ActivityIndicator,
   Image,
@@ -23,13 +24,11 @@ import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatli
 import Markdown from "react-native-markdown-display";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const API_BASE_URL = "https://studyapp-production-66d5.up.railway.app";
 const MAX_IMAGES = 10;
 
 const SUBJECTS = ["財務会計論", "管理会計論", "監査論", "企業法", "租税法", "経営学"];
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
-type TextbookMeta = { bookId: string; subject: string; bookName: string; totalPages: number };
 
 export default function AnswerScreen() {
   const { width } = useWindowDimensions();
@@ -99,9 +98,8 @@ export default function AnswerScreen() {
 
   const loadBooks = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/textbook/list`);
-      const data = await res.json();
-      setAvailableBooks(data.books || []);
+      const books = await apiClient.listTextbooks();
+      setAvailableBooks(books);
     } catch {
       setAvailableBooks([]);
     }
@@ -121,13 +119,7 @@ export default function AnswerScreen() {
     setChunksLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE_URL}/textbook/chunks-by-pages`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ bookId: sourceBookId, fromPage: sourceFromPage, toPage: sourceToPage }),
-      });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      const data = await apiClient.getChunksByPages({ bookId: sourceBookId, fromPage: sourceFromPage, toPage: sourceToPage });
       setQuestion(data.text);
     } catch (e: any) {
       setError("教科書の読み込みに失敗しました: " + e.message);
@@ -163,19 +155,11 @@ export default function AnswerScreen() {
     if (fromPage) formData.append("fromPage", fromPage);
     if (toPage) formData.append("toPage", toPage);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
     try {
-      const response = await fetch(`${API_BASE_URL}/extract-pdf`, {
-        method: "POST", body: formData, signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      const data = await response.json();
-      if (data.error) throw new Error(data.error);
+      const data = await apiClient.extractPdf(formData);
       setQuestion(data.text);
       setPdfInfo({ totalPages: data.totalPages, fromPage: data.fromPage, toPage: data.toPage, imagePages: data.imagePages || [] });
     } catch (e: any) {
-      clearTimeout(timeoutId);
       const msg: string = e.message || "";
       if (e.name === "AbortError" || msg.includes("aborted")) {
         setError("接続がタイムアウトしました（30秒）。ネットワーク環境をご確認ください。");
@@ -247,9 +231,7 @@ export default function AnswerScreen() {
       formData.append("image", { uri: image.uri, type: image.mimeType || "image/jpeg", name: fileName } as any);
     }
     try {
-      const res = await fetch(`${API_BASE_URL}/extract-image`, { method: "POST", body: formData });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      const data = await apiClient.extractImage(formData);
       onText(data.text);
     } catch (e: any) {
       setError("画像の読み込みに失敗しました: " + e.message);
@@ -313,20 +295,15 @@ export default function AnswerScreen() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const userId = user?.id ?? "unknown";
-      const res = await fetch(`${API_BASE_URL}/grade`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          question, answer, subject, userId,
-          bookIds: [...selectedBookIds],
-          questionImages: questionImages.map(i => i.base64),
-          answerImages: answerImages.map(i => i.base64),
-          ...(questionSourceMode === "textbook" && sourceBookId ? {
-            sourceBookId, sourceFromPage, sourceToPage,
-          } : {}),
-        }),
+      const data = await apiClient.grade({
+        question, answer, subject, userId,
+        bookIds: [...selectedBookIds],
+        questionImages: questionImages.map(i => i.base64),
+        answerImages: answerImages.map(i => i.base64),
+        ...(questionSourceMode === "textbook" && sourceBookId ? {
+          sourceBookId, sourceFromPage, sourceToPage,
+        } : {}),
       });
-      const data = await res.json();
       setResult(data.result);
       setSummary(data.summary || "");
       setRefPages(data.refPages || []);
@@ -368,12 +345,7 @@ export default function AnswerScreen() {
     setChatInput("");
     setChatLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: msgs, subject, context: result }),
-      });
-      const data = await res.json();
+      const data = await apiClient.chat({ messages: msgs, subject, context: result });
       setChatMessages([...msgs, { role: "assistant", content: data.reply }]);
     } catch {
       setChatMessages([...msgs, { role: "assistant", content: "エラーが発生しました。もう一度お試しください。" }]);
@@ -386,12 +358,7 @@ export default function AnswerScreen() {
     setRefPageModalTitle(refPage);
     setRefPageModalText("検索中...");
     try {
-      const res = await fetch(`${API_BASE_URL}/textbook/search`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ query: refPage, subject }),
-      });
-      const data = await res.json();
+      const data = await apiClient.searchTextbook({ query: refPage, subject });
       if (data.results && data.results.length > 0) {
         setRefPageModalText(data.results[0].excerpt);
       } else {

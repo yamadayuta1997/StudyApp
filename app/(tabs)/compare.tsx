@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
+import { apiClient } from '@/utils/apiClient';
 import { moveItem } from '@/utils/imageReorder';
 import { DAILY_LIMIT, checkAndIncrement, getUsageCount, isDevDevice } from '@/utils/usageLimit';
 import { supabase } from '@/utils/supabase';
@@ -28,8 +29,6 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-const SERVER = 'https://studyapp-production-66d5.up.railway.app';
 
 const SUBJECTS = ['財務会計論', '管理会計論', '監査論', '企業法', '租税法', '経営学'];
 
@@ -284,23 +283,13 @@ const [usageCount, setUsageCount] = useState(0);
     setEvalScore(null);
     setImprovements([]);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 90000);
     const t1 = setTimeout(() => setLoadingStep(1), 18000);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const userId = user?.id ?? "unknown";
-      const resp = await fetch(`${SERVER}/grade-compare`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answerImages: answerB64s, modelAnswerImages: modelB64s, promptTips, userId, subject }),
-        signal: controller.signal,
-      });
-      console.log('[compare][analyze] status:', resp.status);
-      const data = await resp.json();
+      const data = await apiClient.gradeCompare({ answerImages: answerB64s, modelAnswerImages: modelB64s, promptTips, userId, subject });
       console.log('[compare][analyze] data:', JSON.stringify(data).slice(0, 300));
-      if (data.error) throw new Error(data.error);
       const safe: GradeResult = {
         score: typeof data.score === 'number' ? data.score : 0,
         passed: Boolean(data.passed),
@@ -330,8 +319,8 @@ const [usageCount, setUsageCount] = useState(0);
         evalPollRef.current = setInterval(async () => {
           pollCount++;
           try {
-            const evalResp = await fetch(`${SERVER}/grade-compare/eval-status/${jobId}`);
-            if (!evalResp.ok) {
+            const evalData = await apiClient.getCompareEvalStatus(jobId);
+            if (!evalData) {
               if (pollCount >= 20) {
                 clearInterval(evalPollRef.current!);
                 evalPollRef.current = null;
@@ -339,7 +328,6 @@ const [usageCount, setUsageCount] = useState(0);
               }
               return;
             }
-            const evalData = await evalResp.json();
             if (evalData.status === 'done' || pollCount >= 20) {
               clearInterval(evalPollRef.current!);
               evalPollRef.current = null;
@@ -378,7 +366,6 @@ const [usageCount, setUsageCount] = useState(0);
         Alert.alert('エラー', e.message);
       }
     } finally {
-      clearTimeout(timeoutId);
       clearTimeout(t1);
       setLoadingStep(0);
       setLoading(false);

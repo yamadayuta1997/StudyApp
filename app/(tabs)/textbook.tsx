@@ -1,6 +1,6 @@
 import * as DocumentPicker from "expo-document-picker";
 import { useFocusEffect } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient, TextbookMeta } from "@/utils/apiClient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -84,6 +84,8 @@ export default function TextbookScreen() {
   const stopPolling = () => {
     if (regPollingRef.current) { clearTimeout(regPollingRef.current); regPollingRef.current = null; }
   };
+
+  useEffect(() => stopPolling, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const resetRegForm = () => {
     stopPolling();

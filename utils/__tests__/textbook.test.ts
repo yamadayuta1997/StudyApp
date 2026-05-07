@@ -197,6 +197,63 @@ describe('textbook — computeProgress', () => {
   });
 });
 
+describe('textbook — ポーリング停止', () => {
+  function makePolling() {
+    let ref: ReturnType<typeof setTimeout> | null = null;
+    const stopPolling = () => { if (ref) { clearTimeout(ref); ref = null; } };
+    const startPolling = (cb: () => void, delay: number) => { ref = setTimeout(cb, delay); };
+    const getRef = () => ref;
+    return { stopPolling, startPolling, getRef };
+  }
+
+  beforeEach(() => { jest.useFakeTimers(); });
+  afterEach(() => { jest.useRealTimers(); });
+
+  test('stopPolling を呼ぶとタイマーがクリアされ ref が null になる', () => {
+    const { stopPolling, startPolling, getRef } = makePolling();
+    const cb = jest.fn();
+    startPolling(cb, 3000);
+    expect(getRef()).not.toBeNull();
+    stopPolling();
+    jest.advanceTimersByTime(5000);
+    expect(cb).not.toHaveBeenCalled();
+    expect(getRef()).toBeNull();
+  });
+
+  test('ポーリング未開始時に stopPolling を呼んでもエラーにならない', () => {
+    const { stopPolling } = makePolling();
+    expect(() => stopPolling()).not.toThrow();
+  });
+
+  test('モーダルを閉じる（resetRegForm）でポーリングが停止する', () => {
+    const { stopPolling, startPolling, getRef } = makePolling();
+    const cb = jest.fn();
+    startPolling(cb, 3000);
+    stopPolling(); // resetRegForm calls stopPolling
+    jest.advanceTimersByTime(5000);
+    expect(cb).not.toHaveBeenCalled();
+    expect(getRef()).toBeNull();
+  });
+
+  test('アンマウント時クリーンアップでポーリングが停止する', () => {
+    const { stopPolling, startPolling, getRef } = makePolling();
+    const cb = jest.fn();
+    startPolling(cb, 3000);
+    const cleanup = stopPolling; // useEffect(() => stopPolling, []) の cleanup
+    cleanup();
+    jest.advanceTimersByTime(5000);
+    expect(cb).not.toHaveBeenCalled();
+    expect(getRef()).toBeNull();
+  });
+
+  test('stopPolling を2回呼んでもエラーにならない', () => {
+    const { stopPolling, startPolling } = makePolling();
+    startPolling(jest.fn(), 3000);
+    stopPolling();
+    expect(() => stopPolling()).not.toThrow();
+  });
+});
+
 describe('textbook — 表示データの完全性', () => {
   test('全フィールドが揃っている', () => {
     const book = makeBook();

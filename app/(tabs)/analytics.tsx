@@ -1,5 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { getCautionTopics, CautionTopic } from "@/utils/cautionTopics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -148,6 +148,7 @@ export default function AnalyticsScreen() {
     }
   };
 
+  const router = useRouter();
   const weakSubjects = stats.filter(s => s.avgScore !== null && s.avgScore < 60);
   const untried = stats.filter(s => s.count === 0);
 
@@ -156,7 +157,19 @@ export default function AnalyticsScreen() {
     <ScrollView contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
       <Text style={styles.title}>📊 苦手分析</Text>
 
-      {/* サマリー */}
+      {/* 空状態 */}
+      {totalCount === 0 && (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>まず問題を解いてみよう</Text>
+          <TouchableOpacity style={styles.emptyButton} onPress={() => router.push("/answer")}>
+            <Text style={styles.emptyButtonText}>採点する →</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* サマリー以降（採点あり時のみ） */}
+      {totalCount > 0 && (
+      <>
       <View style={styles.summaryRow}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryValue}>{totalCount}</Text>
@@ -255,6 +268,8 @@ export default function AnalyticsScreen() {
           <Text style={styles.untriedTitle}>📝 まだ練習していない科目</Text>
           <Text style={styles.untriedText}>{untried.map(s => s.subject).join("・")}</Text>
         </View>
+      )}
+      </>
       )}
     </ScrollView>
     </KeyboardAvoidingView>
@@ -373,6 +388,19 @@ const styles = StyleSheet.create({
     borderColor: "#fcd34d",
   },
   cautionBadgeText: { color: "#92400e", fontSize: 12, fontWeight: "bold" },
+  emptyContainer: {
+    alignItems: "center",
+    paddingVertical: 60,
+    gap: 20,
+  },
+  emptyText: { fontSize: 18, fontWeight: "bold", color: "#64748b" },
+  emptyButton: {
+    backgroundColor: "#2563eb",
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+  },
+  emptyButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
 });
 
 const markdownStyles = {

@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
@@ -212,6 +213,9 @@ export default function AnswerScreen() {
   // Ref page modal
   const [refPageModalText, setRefPageModalText] = useState("");
   const [refPageModalTitle, setRefPageModalTitle] = useState("");
+
+  // Copy toast
+  const [copyToast, setCopyToast] = useState(false);
 
   useFocusEffect(useCallback(() => {
     loadBooks();
@@ -497,6 +501,26 @@ export default function AnswerScreen() {
     } finally {
       setChatLoading(false);
     }
+  };
+
+  const handleCopy = async (text: string) => {
+    await Clipboard.setStringAsync(text);
+    setCopyToast(true);
+    setTimeout(() => setCopyToast(false), 2000);
+  };
+
+  const handleCopyAll = () => {
+    const lines: string[] = [];
+    lines.push(`【${subject}】採点結果`);
+    if (summary) { lines.push(""); lines.push("💡 解説まとめ"); lines.push(summary); }
+    if (result) { lines.push(""); lines.push("📊 採点結果"); lines.push(result); }
+    if (topicEvaluation) {
+      lines.push(""); lines.push("🎯 論点評価");
+      topicEvaluation.present.forEach(t => lines.push(`✅ ${t}`));
+      topicEvaluation.missing.forEach(t => lines.push(`❌ ${t}`));
+      topicEvaluation.irrelevant.forEach(t => lines.push(`⚠️ ${t}`));
+    }
+    handleCopy(lines.join("\n"));
   };
 
   const handleShare = async () => {
@@ -925,7 +949,12 @@ export default function AnswerScreen() {
             {/* 解説まとめ */}
             {summary !== "" && (
               <View style={styles.summaryCard}>
-                <Text style={styles.summaryTitle}>💡 解説まとめ</Text>
+                <View style={styles.summaryHeader}>
+                  <Text style={styles.summaryTitle}>💡 解説まとめ</Text>
+                  <TouchableOpacity style={styles.copyIconBtn} onPress={() => handleCopy(summary)}>
+                    <Text style={styles.copyIconText}>📋</Text>
+                  </TouchableOpacity>
+                </View>
                 <Text style={styles.summaryText}>{summary}</Text>
               </View>
             )}
@@ -937,12 +966,18 @@ export default function AnswerScreen() {
                 <View style={styles.resultBadge}>
                   <Text style={styles.resultBadgeText}>{subject}</Text>
                 </View>
+                <TouchableOpacity style={styles.copyIconBtn} onPress={() => handleCopy(result)}>
+                  <Text style={styles.copyIconText}>📋</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
                   <Text style={styles.shareButtonText}>🔗 シェア</Text>
                 </TouchableOpacity>
               </View>
               <View style={styles.resultDivider} />
               <Markdown style={markdownStyles}>{result}</Markdown>
+              <TouchableOpacity style={styles.copyAllButton} onPress={handleCopyAll}>
+                <Text style={styles.copyAllButtonText}>📋 採点結果全体をコピー</Text>
+              </TouchableOpacity>
             </View>
 
             {/* 論点評価 */}
@@ -959,17 +994,26 @@ export default function AnswerScreen() {
                 )}
                 {topicEvaluation.present.map((t, i) => (
                   <View key={`p${i}`} style={styles.topicRow}>
-                    <Text style={styles.topicPresent}>✅ {t}</Text>
+                    <Text style={[styles.topicPresent, { flex: 1 }]}>✅ {t}</Text>
+                    <TouchableOpacity onPress={() => handleCopy(`✅ ${t}`)}>
+                      <Text style={styles.copyIconText}>📋</Text>
+                    </TouchableOpacity>
                   </View>
                 ))}
                 {topicEvaluation.missing.map((t, i) => (
                   <View key={`m${i}`} style={styles.topicRow}>
-                    <Text style={styles.topicMissing}>❌ {t}</Text>
+                    <Text style={[styles.topicMissing, { flex: 1 }]}>❌ {t}</Text>
+                    <TouchableOpacity onPress={() => handleCopy(`❌ ${t}`)}>
+                      <Text style={styles.copyIconText}>📋</Text>
+                    </TouchableOpacity>
                   </View>
                 ))}
                 {topicEvaluation.irrelevant.map((t, i) => (
                   <View key={`ir${i}`} style={styles.topicRow}>
-                    <Text style={styles.topicIrrelevant}>⚠️ {t}</Text>
+                    <Text style={[styles.topicIrrelevant, { flex: 1 }]}>⚠️ {t}</Text>
+                    <TouchableOpacity onPress={() => handleCopy(`⚠️ ${t}`)}>
+                      <Text style={styles.copyIconText}>📋</Text>
+                    </TouchableOpacity>
                   </View>
                 ))}
               </View>
@@ -1026,6 +1070,13 @@ export default function AnswerScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* コピートースト */}
+      {copyToast && (
+        <View style={styles.toast}>
+          <Text style={styles.toastText}>✅ コピーしました</Text>
+        </View>
+      )}
 
       {/* 科目選択モーダル */}
       <Modal visible={subjectModalVisible} animationType="slide" transparent onRequestClose={() => setSubjectModalVisible(false)}>
@@ -1141,7 +1192,7 @@ function createStyles(colors: AppColors) {
     errorText: { color: colors.dangerText, fontSize: 14, flex: 1 },
     errorClose: { color: colors.dangerText, fontSize: 18, fontWeight: "bold", marginLeft: 8 },
     summaryCard: { backgroundColor: colors.warningBgAlt, borderRadius: 14, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.warningBorderAlt },
-    summaryTitle: { fontSize: 15, fontWeight: "bold", color: colors.amberText, marginBottom: 8 },
+    summaryTitle: { fontSize: 15, fontWeight: "bold", color: colors.amberText },
     summaryText: { fontSize: 14, color: colors.amberTextDark, lineHeight: 22 },
     resultCard: { backgroundColor: colors.cardBg, borderRadius: 14, padding: 20, marginTop: 8, borderWidth: 1, borderColor: colors.cardBorder, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 6 },
     resultHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
@@ -1195,7 +1246,7 @@ function createStyles(colors: AppColors) {
     topicListSection: { backgroundColor: colors.statCardBg, borderRadius: 8, padding: 10, marginBottom: 10 },
     topicListTitle: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginBottom: 4 },
     topicItem: { fontSize: 13, color: colors.textSecondary, marginBottom: 2 },
-    topicRow: { paddingVertical: 4 },
+    topicRow: { paddingVertical: 4, flexDirection: "row" as const, alignItems: "center" as const },
     topicPresent: { fontSize: 14, color: colors.successText },
     topicMissing: { fontSize: 14, color: colors.dangerText },
     topicIrrelevant: { fontSize: 14, color: colors.warningText },
@@ -1205,6 +1256,13 @@ function createStyles(colors: AppColors) {
     ctaBannerButtonText: { color: colors.textInverse, fontSize: 13, fontWeight: "bold" },
     shareButton: { backgroundColor: colors.successBg, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.successBorder },
     shareButtonText: { color: colors.successDark, fontSize: 13, fontWeight: "600" },
+    summaryHeader: { flexDirection: "row" as const, justifyContent: "space-between" as const, alignItems: "center" as const, marginBottom: 8 },
+    copyIconBtn: { padding: 4 },
+    copyIconText: { fontSize: 16 },
+    copyAllButton: { marginTop: 12, backgroundColor: colors.accentBg, borderRadius: 10, paddingVertical: 10, alignItems: "center" as const, borderWidth: 1, borderColor: colors.accentBorder },
+    copyAllButtonText: { color: colors.accent, fontSize: 14, fontWeight: "600" as const },
+    toast: { position: "absolute" as const, bottom: 80, alignSelf: "center" as const, backgroundColor: "rgba(0,0,0,0.75)", borderRadius: 20, paddingVertical: 10, paddingHorizontal: 20 },
+    toastText: { color: "#fff", fontSize: 14, fontWeight: "600" as const },
     pageRangeRow: { flexDirection: "row" as const, alignItems: "center" as const, marginBottom: 10, gap: 6 },
     pageInput: { width: 56, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 8, padding: 6, fontSize: 13, textAlign: "center" as const, color: colors.textPrimary, backgroundColor: colors.inputBg },
     pageRangeSep: { fontSize: 13, color: colors.textMuted },

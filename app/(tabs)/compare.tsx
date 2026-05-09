@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Clipboard from 'expo-clipboard';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
@@ -95,6 +96,7 @@ const [usageCount, setUsageCount] = useState(0);
   const [showOverlay, setShowOverlay] = useState(true);
   const [subject, setSubject] = useState('財務会計論');
   const [subjectModalVisible, setSubjectModalVisible] = useState(false);
+  const [copyToast, setCopyToast] = useState(false);
 
   useFocusEffect(useCallback(() => {
     loadLastSaved();
@@ -457,6 +459,13 @@ const [usageCount, setUsageCount] = useState(0);
                       <Text style={styles.overlayType}>{TYPE_ICON[fb.type] || '•'} {fb.type}</Text>
                       <Text style={styles.overlayPoint} numberOfLines={2}>{fb.point}</Text>
                     </View>
+                    <TouchableOpacity
+                      onPress={(e) => { e.stopPropagation(); handleCopy(`[${fb.type}] ${fb.point}`); }}
+                      hitSlop={8}
+                      style={styles.overlayCopyBtn}
+                    >
+                      <Text style={styles.overlayCopyText}>📋</Text>
+                    </TouchableOpacity>
                     <Text style={styles.overlayChevron}>›</Text>
                   </TouchableOpacity>
                 ))}
@@ -476,6 +485,21 @@ const [usageCount, setUsageCount] = useState(0);
   const toggleOverlay = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setShowOverlay(prev => !prev);
+  };
+
+  const handleCopy = async (text: string) => {
+    await Clipboard.setStringAsync(text);
+    setCopyToast(true);
+    setTimeout(() => setCopyToast(false), 2000);
+  };
+
+  const handleCopyAllFeedbacks = () => {
+    if (!result) return;
+    const lines: string[] = [`【${subject}】比較添削結果`, `スコア: ${result.score}点 ${result.passed ? '（合格ライン達成）' : '（合格ライン未達）'}`, '', 'フィードバック:'];
+    result.feedbacks.forEach(fb => {
+      lines.push(`${TYPE_ICON[fb.type] || '•'} [${fb.type}] ${fb.point}`);
+    });
+    handleCopy(lines.join('\n'));
   };
 
   const handleShare = async () => {
@@ -525,9 +549,17 @@ const [usageCount, setUsageCount] = useState(0);
                 </View>
                 <Text style={styles.modalPointLabel}>指摘内容</Text>
                 <Text style={styles.modalPointText}>{selectedFeedback.point}</Text>
-                <TouchableOpacity style={[styles.modalOkBtn, { backgroundColor: COLOR_MAP[selectedFeedback.color] || '#007AFF' }]} onPress={closeFeedbackModal}>
-                  <Text style={styles.modalOkText}>閉じる</Text>
-                </TouchableOpacity>
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={styles.modalCopyBtn}
+                    onPress={() => handleCopy(`[${selectedFeedback.type}] ${selectedFeedback.point}`)}
+                  >
+                    <Text style={styles.modalCopyText}>📋 コピー</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.modalOkBtn, { backgroundColor: COLOR_MAP[selectedFeedback.color] || '#007AFF', flex: 1 }]} onPress={closeFeedbackModal}>
+                    <Text style={styles.modalOkText}>閉じる</Text>
+                  </TouchableOpacity>
+                </View>
               </>
             )}
           </Pressable>
@@ -685,6 +717,9 @@ const [usageCount, setUsageCount] = useState(0);
               <View style={[styles.badge, result.passed ? styles.pass : styles.fail]}>
                 <Text style={styles.badgeText}>{result.passed ? '合格ライン達成' : '合格ライン未達'}</Text>
               </View>
+              <TouchableOpacity style={styles.copyIconBtn} onPress={handleCopyAllFeedbacks}>
+                <Text style={styles.copyIconText}>📋</Text>
+              </TouchableOpacity>
               <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
                 <Text style={styles.shareBtnText}>🔗 シェア</Text>
               </TouchableOpacity>
@@ -803,6 +838,13 @@ const [usageCount, setUsageCount] = useState(0);
             {showOverlay ? '∧ 閉じる' : '✎ 添削を見る'}
           </Text>
         </TouchableOpacity>
+      )}
+
+      {/* コピートースト */}
+      {copyToast && (
+        <View style={styles.toast}>
+          <Text style={styles.toastText}>✅ コピーしました</Text>
+        </View>
       )}
 
       {/* 科目選択モーダル */}
@@ -999,6 +1041,15 @@ function createStyles(colors: AppColors) { return StyleSheet.create({
   loadingStepLine: { flex: 1, height: 2, marginHorizontal: 2, marginBottom: 14 },
   loadingStepLineDone: { backgroundColor: '#34C759' },
   loadingStepLinePending: { backgroundColor: colors.divider },
-  shareBtn: { marginLeft: 'auto', backgroundColor: colors.successBg, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.successBorder },
+  shareBtn: { backgroundColor: colors.successBg, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.successBorder },
   shareBtnText: { color: colors.successDark, fontSize: 13, fontWeight: '600' as const },
+  copyIconBtn: { padding: 4 },
+  copyIconText: { fontSize: 16 },
+  overlayCopyBtn: { marginRight: 4 },
+  overlayCopyText: { fontSize: 14 },
+  modalActions: { flexDirection: 'row' as const, gap: 10 },
+  modalCopyBtn: { backgroundColor: colors.accentBg, borderRadius: 12, padding: 14, alignItems: 'center' as const, borderWidth: 1, borderColor: colors.accentBorder },
+  modalCopyText: { color: colors.accent, fontSize: 14, fontWeight: '600' as const },
+  toast: { position: 'absolute' as const, bottom: 100, alignSelf: 'center' as const, backgroundColor: 'rgba(0,0,0,0.75)', borderRadius: 20, paddingVertical: 10, paddingHorizontal: 20 },
+  toastText: { color: '#fff', fontSize: 14, fontWeight: '600' as const },
 });}

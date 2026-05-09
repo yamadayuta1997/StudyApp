@@ -309,7 +309,11 @@ export default function AnswerScreen() {
       } else if (msg.includes("NO_FILE")) {
         setError("ファイルの送信に失敗しました。PDFを再選択してください。");
       } else if (msg.includes("NO_TEXT")) {
-        setError("テキストを抽出できませんでした。スキャン画像PDFは「カメラで撮影」機能をご利用ください。");
+        setError(
+          Platform.OS === "web"
+            ? "テキストを抽出できませんでした。スキャン画像PDFは画像としてギャラリーからアップロードしてください。"
+            : "テキストを抽出できませんでした。スキャン画像PDFは「カメラで撮影」機能をご利用ください。"
+        );
       } else if (msg.includes("PARSE_ERROR")) {
         setError("PDFの解析に失敗しました。パスワード保護や破損ファイルは読み込めません。");
       } else {

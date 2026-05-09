@@ -139,6 +139,7 @@ export const apiClient = {
     promptTips: string[];
     userId: string;
     subject: string;
+    gradingCriteria?: string;
   }): Promise<any> {
     const data = await apiFetch<any>("/grade-compare", {
       method: "POST",

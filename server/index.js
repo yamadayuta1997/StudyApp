@@ -1222,7 +1222,7 @@ app.get("/grade-compare/eval-status/:jobId", (req, res) => {
 
 app.post("/grade-compare", async (req, res) => {
   try {
-    const { answerImage, modelAnswerImage, modelAnswerText, subject, promptTips, deviceId, userId } = req.body;
+    const { answerImage, modelAnswerImage, modelAnswerText, subject, promptTips, deviceId, userId, gradingCriteria } = req.body;
 
     // 複数ページ対応: 配列優先、単一画像は後方互換
     const answerImages = Array.isArray(req.body.answerImages) && req.body.answerImages.length > 0
@@ -1324,6 +1324,12 @@ app.post("/grade-compare", async (req, res) => {
       ? `\n\n【過去の改善指示（必ず反映すること）】\n${promptTips.slice(-3).map((t, i) => `${i + 1}. ${t}`).join("\n")}`
       : "";
 
+    const criteriaContextMap = {
+      issue_focus: `\n\n【採点基準：論点重視モード】\n- 論点認識（issueRecognition）のズレを最重要視し、scoreに最も大きく影響させる\n- 正しい論点を把握できていれば、軽微な計算ミスがあっても高めに評価する\n- feedbacksはtype:"論点誤認"・"前提不足"を優先して指摘し、計算ミスは軽微な場合は省略可`,
+      calculation_focus: `\n\n【採点基準：計算重視モード】\n- 計算・ロジック（logic）の正確性を最重要視し、scoreに最も大きく影響させる\n- 計算ミスや途中式の誤りは厳しく減点する\n- feedbacksはtype:"計算ミス"・"思考プロセスミス"を優先して指摘する`,
+    };
+    const criteriaContext = criteriaContextMap[gradingCriteria] ?? "";
+
     // 採点プロンプト（ホットパス・バックグラウンドリトライ共用）
     const gradingUserContent = `あなたはCPA（公認会計士）試験の答案添削AIです。
 科目: ${subject || "不明"}
@@ -1349,7 +1355,7 @@ ${modelText}
 - 図・グラフ: 軸ラベル・種類が正しく数値のみ異なる場合 → 50〜70点相当
 - 図表の形式が根本的に誤っている（借方・貸方が逆、構造崩壊など）場合 → 0〜20点
 - 手書き図表は読み取れる部分を最大限評価し、不鮮明な箇所は受験生に有利に解釈する
-- 図表形式の誤りは type: "図表形式ミス" で指摘する${tipsContext}`;
+- 図表形式の誤りは type: "図表形式ミス" で指摘する${criteriaContext}${tipsContext}`;
 
     // ---- ホットパス: 採点1回のみ実行して即時レスポンス ----
     let analysisRes;

@@ -37,6 +37,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const SUBJECTS = ['財務会計論', '管理会計論', '監査論', '企業法', '租税法', '経営学'];
 
+type GradingCriteria = 'balanced' | 'issue_focus' | 'calculation_focus';
+const GRADING_CRITERIA: { value: GradingCriteria; label: string; desc: string }[] = [
+  { value: 'balanced',          label: 'バランス型', desc: '論点・計算を均等に評価' },
+  { value: 'issue_focus',       label: '論点重視',   desc: '論点認識・前提整理を優先' },
+  { value: 'calculation_focus', label: '計算重視',   desc: '計算・ロジックを厳格に評価' },
+];
+const GRADING_CRITERIA_STORAGE_KEY = 'compare_grading_criteria';
+
 const COLOR_MAP: Record<string, string> = { red: '#FF3B30', yellow: '#FF9500', green: '#34C759' };
 
 const TYPE_ICON: Record<string, string> = {
@@ -98,12 +106,33 @@ const [usageCount, setUsageCount] = useState(0);
   const [subject, setSubject] = useState('財務会計論');
   const [subjectModalVisible, setSubjectModalVisible] = useState(false);
   const [copyToast, setCopyToast] = useState(false);
+  const [gradingCriteria, setGradingCriteriaState] = useState<GradingCriteria>('balanced');
 
   useFocusEffect(useCallback(() => {
     loadLastSaved();
     refreshUsage();
     loadPromptTips();
+    loadGradingCriteria();
   }, []));
+
+  const loadGradingCriteria = async () => {
+    try {
+      const raw = await AsyncStorage.getItem(GRADING_CRITERIA_STORAGE_KEY);
+      if (raw) setGradingCriteriaState(raw as GradingCriteria);
+    } catch (e: any) {
+      console.log('[compare][gradingCriteria] load error:', e.message);
+    }
+  };
+
+  const saveGradingCriteria = async (value: GradingCriteria) => {
+    setGradingCriteriaState(value);
+    try {
+      await AsyncStorage.setItem(GRADING_CRITERIA_STORAGE_KEY, value);
+      console.log('[compare][gradingCriteria] saved:', value);
+    } catch (e: any) {
+      console.log('[compare][gradingCriteria] save error:', e.message);
+    }
+  };
 
   const loadPromptTips = async () => {
     try {
@@ -297,7 +326,7 @@ const [usageCount, setUsageCount] = useState(0);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       const userId = user?.id ?? "unknown";
-      const data = await apiClient.gradeCompare({ answerImages: answerB64s, modelAnswerImages: modelB64s, promptTips, userId, subject });
+      const data = await apiClient.gradeCompare({ answerImages: answerB64s, modelAnswerImages: modelB64s, promptTips, userId, subject, gradingCriteria });
       console.log('[compare][analyze] data:', JSON.stringify(data).slice(0, 300));
       const safe: GradeResult = {
         score: typeof data.score === 'number' ? data.score : 0,
@@ -886,6 +915,21 @@ const [usageCount, setUsageCount] = useState(0);
                 </TouchableOpacity>
               ))}
             </View>
+
+            <Text style={styles.criteriaLabel}>⚖️ 採点基準</Text>
+            <View style={styles.criteriaRow}>
+              {GRADING_CRITERIA.map(c => (
+                <TouchableOpacity
+                  key={c.value}
+                  style={[styles.criteriaBtn, gradingCriteria === c.value && styles.criteriaBtnActive]}
+                  onPress={() => saveGradingCriteria(c.value)}
+                >
+                  <Text style={[styles.criteriaBtnLabel, gradingCriteria === c.value && styles.criteriaBtnLabelActive]}>{c.label}</Text>
+                  <Text style={[styles.criteriaBtnDesc, gradingCriteria === c.value && styles.criteriaBtnDescActive]}>{c.desc}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
             <View style={styles.subjectModalActions}>
               <TouchableOpacity style={styles.subjectCancelBtn} onPress={() => setSubjectModalVisible(false)}>
                 <Text style={styles.subjectCancelText}>キャンセル</Text>
@@ -1065,6 +1109,14 @@ function createStyles(colors: AppColors) { return StyleSheet.create({
   loadingStepLine: { flex: 1, height: 2, marginHorizontal: 2, marginBottom: 14 },
   loadingStepLineDone: { backgroundColor: '#34C759' },
   loadingStepLinePending: { backgroundColor: colors.divider },
+  criteriaLabel: { fontSize: 13, fontWeight: '700', color: colors.iosTextSecondary, marginTop: 18, marginBottom: 8 },
+  criteriaRow: { flexDirection: 'row', gap: 6, marginBottom: 4 },
+  criteriaBtn: { flex: 1, borderRadius: 12, borderWidth: 1.5, borderColor: colors.cardBorder, backgroundColor: colors.statCardBg, padding: 10, alignItems: 'center' },
+  criteriaBtnActive: { backgroundColor: colors.iosAccent, borderColor: colors.iosAccent },
+  criteriaBtnLabel: { fontSize: 12, fontWeight: '700', color: colors.textSecondary },
+  criteriaBtnLabelActive: { color: '#fff' },
+  criteriaBtnDesc: { fontSize: 9, color: colors.iosTextMuted, marginTop: 3, textAlign: 'center' },
+  criteriaBtnDescActive: { color: 'rgba(255,255,255,0.85)' },
   shareBtn: { backgroundColor: colors.successBg, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.successBorder },
   shareBtnText: { color: colors.successDark, fontSize: 13, fontWeight: '600' as const },
   copyIconBtn: { padding: 4 },

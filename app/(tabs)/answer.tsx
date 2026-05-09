@@ -140,6 +140,7 @@ function createSliderStyles(colors: AppColors) {
 }
 
 const MAX_IMAGES = 10;
+const MAX_FIGURE_IMAGES = 3;
 
 const SUBJECTS = ["財務会計論", "管理会計論", "監査論", "企業法", "租税法", "経営学"];
 
@@ -409,13 +410,14 @@ export default function AnswerScreen() {
   const pickImagesFromGallery = async (
     setter: React.Dispatch<React.SetStateAction<{ uri: string; base64: string }[]>>,
     currentCount: number,
+    maxCount: number = MAX_IMAGES,
   ) => {
     if (Platform.OS !== "web") {
       const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!perm.granted) { setError("フォトライブラリへのアクセス許可が必要です。"); return; }
     }
-    const remaining = MAX_IMAGES - currentCount;
-    if (remaining <= 0) { setError(`画像は最大${MAX_IMAGES}枚まで追加できます。`); return; }
+    const remaining = maxCount - currentCount;
+    if (remaining <= 0) { setError(`画像は最大${maxCount}枚まで追加できます。`); return; }
     const res = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: "images", quality: 0.7, base64: true,
       allowsMultipleSelection: true, selectionLimit: remaining,
@@ -423,22 +425,23 @@ export default function AnswerScreen() {
     if (res.canceled || res.assets.length === 0) return;
     const valid = res.assets.filter(a => !!a.base64);
     if (valid.length === 0) { setError("画像の読み込みに失敗しました。"); return; }
-    setter(prev => [...prev, ...valid.map(a => ({ uri: a.uri, base64: a.base64! }))].slice(0, MAX_IMAGES));
+    setter(prev => [...prev, ...valid.map(a => ({ uri: a.uri, base64: a.base64! }))].slice(0, maxCount));
   };
 
   const takePhotoAndAdd = async (
     setter: React.Dispatch<React.SetStateAction<{ uri: string; base64: string }[]>>,
     currentCount: number,
+    maxCount: number = MAX_IMAGES,
   ) => {
     if (Platform.OS === "web") { setError("Webブラウザではカメラを使用できません。ギャラリーから選択してください。"); return; }
-    if (currentCount >= MAX_IMAGES) { setError(`画像は最大${MAX_IMAGES}枚まで追加できます。`); return; }
+    if (currentCount >= maxCount) { setError(`画像は最大${maxCount}枚まで追加できます。`); return; }
     const perm = await ImagePicker.requestCameraPermissionsAsync();
     if (!perm.granted) { setError("カメラの使用許可が必要です。"); return; }
     const res = await ImagePicker.launchCameraAsync({ mediaTypes: "images", quality: 0.7, base64: true });
     if (res.canceled || !res.assets[0]) return;
     const asset = res.assets[0];
     if (!asset.base64) { setError("画像の読み込みに失敗しました。"); return; }
-    setter(prev => [...prev, { uri: asset.uri, base64: asset.base64! }].slice(0, MAX_IMAGES));
+    setter(prev => [...prev, { uri: asset.uri, base64: asset.base64! }].slice(0, maxCount));
   };
 
   const handleSubmit = async () => {
@@ -848,25 +851,32 @@ export default function AnswerScreen() {
       {/* 図・表画像追加 */}
       <View style={styles.answerImagesSection}>
         <View style={styles.answerImagesHeader}>
-          <Text style={styles.answerImagesLabel}>📊 答案の画像を追加（任意・最大{MAX_IMAGES}枚）</Text>
-          <Text style={styles.imageCountBadge}>{answerImages.length}/{MAX_IMAGES}</Text>
+          <Text style={styles.answerImagesLabel}>📊 図・表の画像を追加（任意）</Text>
+          <Text style={[styles.imageCountBadge, answerImages.length >= MAX_FIGURE_IMAGES && styles.imageCountBadgeFull]}>
+            {answerImages.length}/{MAX_FIGURE_IMAGES}枚
+          </Text>
         </View>
         <View style={styles.imageButtonRow}>
           <TouchableOpacity
-            style={[styles.imageButton, { backgroundColor: "#f5f3ff", borderColor: "#c4b5fd" }]}
-            onPress={() => pickImagesFromGallery(setAnswerImages, answerImages.length)}
+            style={[styles.imageButton, { backgroundColor: "#f5f3ff", borderColor: "#c4b5fd" }, answerImages.length >= MAX_FIGURE_IMAGES && styles.imageButtonDisabled]}
+            onPress={() => pickImagesFromGallery(setAnswerImages, answerImages.length, MAX_FIGURE_IMAGES)}
+            disabled={answerImages.length >= MAX_FIGURE_IMAGES}
           >
             <Text style={[styles.imageButtonText, { color: "#7c3aed" }]}>🖼 ギャラリー</Text>
           </TouchableOpacity>
           {Platform.OS !== "web" && (
             <TouchableOpacity
-              style={[styles.imageButton, { backgroundColor: "#fdf4ff", borderColor: "#e879f9" }]}
-              onPress={() => takePhotoAndAdd(setAnswerImages, answerImages.length)}
+              style={[styles.imageButton, { backgroundColor: "#fdf4ff", borderColor: "#e879f9" }, answerImages.length >= MAX_FIGURE_IMAGES && styles.imageButtonDisabled]}
+              onPress={() => takePhotoAndAdd(setAnswerImages, answerImages.length, MAX_FIGURE_IMAGES)}
+              disabled={answerImages.length >= MAX_FIGURE_IMAGES}
             >
               <Text style={[styles.imageButtonText, { color: "#a21caf" }]}>📸 カメラ</Text>
             </TouchableOpacity>
           )}
         </View>
+        {answerImages.length >= MAX_FIGURE_IMAGES && (
+          <Text style={styles.imageLimitText}>上限（{MAX_FIGURE_IMAGES}枚）に達しました。追加するには既存の画像を削除してください。</Text>
+        )}
         {answerImages.length > 0 && (
           <DraggableFlatList
             horizontal
@@ -1254,6 +1264,9 @@ function createStyles(colors: AppColors) {
     answerImagesHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
     answerImagesLabel: { fontSize: 13, color: colors.textSecondary, flex: 1 },
     imageCountBadge: { fontSize: 12, color: colors.textSecondary, fontWeight: "600" },
+    imageCountBadgeFull: { color: colors.dangerText, fontWeight: "700" },
+    imageButtonDisabled: { opacity: 0.4 },
+    imageLimitText: { fontSize: 12, color: colors.dangerText, marginTop: 4, marginBottom: 4 },
     thumbnailRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
     thumbnailContainer: { position: "relative", marginRight: 8 },
     thumbnail: { width: 72, height: 72, borderRadius: 8, borderWidth: 1, borderColor: colors.cardBorder },

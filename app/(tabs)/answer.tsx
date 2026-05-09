@@ -218,6 +218,10 @@ export default function AnswerScreen() {
   // Copy toast
   const [copyToast, setCopyToast] = useState(false);
 
+  // Accordion expand state for long feedback
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const [resultExpanded, setResultExpanded] = useState(false);
+
   // Question templates
   const [questionTemplates, setQuestionTemplates] = useState<string[]>([]);
   const [templateModalVisible, setTemplateModalVisible] = useState(false);
@@ -990,7 +994,12 @@ export default function AnswerScreen() {
                     <Text style={styles.copyIconText}>📋</Text>
                   </TouchableOpacity>
                 </View>
-                <Text style={styles.summaryText}>{summary}</Text>
+                <Text style={styles.summaryText} numberOfLines={summaryExpanded ? undefined : 4}>{summary}</Text>
+                {summary.length > 150 && (
+                  <TouchableOpacity onPress={() => setSummaryExpanded(prev => !prev)} style={styles.expandBtn}>
+                    <Text style={styles.expandBtnText}>{summaryExpanded ? '閉じる ∧' : 'もっと見る ∨'}</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
 
@@ -1009,7 +1018,14 @@ export default function AnswerScreen() {
                 </TouchableOpacity>
               </View>
               <View style={styles.resultDivider} />
-              <Markdown style={markdownStyles}>{result}</Markdown>
+              <View style={resultExpanded ? undefined : styles.resultCollapsed}>
+                <Markdown style={markdownStyles}>{result}</Markdown>
+              </View>
+              {result.length > 300 && (
+                <TouchableOpacity onPress={() => setResultExpanded(prev => !prev)} style={styles.expandBtn}>
+                  <Text style={styles.expandBtnText}>{resultExpanded ? '閉じる ∧' : 'もっと見る ∨'}</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity style={styles.copyAllButton} onPress={handleCopyAll}>
                 <Text style={styles.copyAllButtonText}>📋 採点結果全体をコピー</Text>
               </TouchableOpacity>
@@ -1256,6 +1272,9 @@ function createStyles(colors: AppColors) {
     summaryCard: { backgroundColor: colors.warningBgAlt, borderRadius: 14, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.warningBorderAlt },
     summaryTitle: { fontSize: 15, fontWeight: "bold", color: colors.amberText },
     summaryText: { fontSize: 14, color: colors.amberTextDark, lineHeight: 22 },
+    resultCollapsed: { maxHeight: 320, overflow: "hidden" },
+    expandBtn: { marginTop: 8, alignSelf: "flex-start" as const },
+    expandBtnText: { fontSize: 13, color: colors.accent, fontWeight: "600" },
     resultCard: { backgroundColor: colors.cardBg, borderRadius: 14, padding: 20, marginTop: 8, borderWidth: 1, borderColor: colors.cardBorder, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 6 },
     resultHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
     resultTitle: { fontSize: 18, fontWeight: "bold", color: colors.textAccent },

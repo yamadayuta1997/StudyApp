@@ -94,6 +94,7 @@ const [usageCount, setUsageCount] = useState(0);
   const evalPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [promptTips, setPromptTips] = useState<string[]>([]);
   const [showOverlay, setShowOverlay] = useState(true);
+  const [expandedItems, setExpandedItems] = useState<Set<number>>(new Set());
   const [subject, setSubject] = useState('財務会計論');
   const [subjectModalVisible, setSubjectModalVisible] = useState(false);
   const [copyToast, setCopyToast] = useState(false);
@@ -457,7 +458,19 @@ const [usageCount, setUsageCount] = useState(0);
                     <View style={[styles.overlayDot, { backgroundColor: COLOR_MAP[fb.color] || '#999' }]} />
                     <View style={styles.overlayTextWrap}>
                       <Text style={styles.overlayType}>{TYPE_ICON[fb.type] || '•'} {fb.type}</Text>
-                      <Text style={styles.overlayPoint} numberOfLines={2}>{fb.point}</Text>
+                      <Text
+                        style={styles.overlayPoint}
+                        numberOfLines={expandedItems.has(i) ? undefined : 2}
+                      >
+                        {fb.point}
+                      </Text>
+                      {fb.point.length > 60 && (
+                        <TouchableOpacity onPress={() => toggleExpandItem(i)} hitSlop={4}>
+                          <Text style={styles.overlayExpand}>
+                            {expandedItems.has(i) ? '閉じる ∧' : 'もっと見る ∨'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                     <TouchableOpacity
                       onPress={(e) => { e.stopPropagation(); handleCopy(`[${fb.type}] ${fb.point}`); }}
@@ -485,6 +498,16 @@ const [usageCount, setUsageCount] = useState(0);
   const toggleOverlay = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
     setShowOverlay(prev => !prev);
+  };
+
+  const toggleExpandItem = (i: number) => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpandedItems(prev => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
   };
 
   const handleCopy = async (text: string) => {
@@ -909,6 +932,7 @@ function createStyles(colors: AppColors) { return StyleSheet.create({
   overlayTextWrap: { flex: 1 },
   overlayType: { fontSize: 11, fontWeight: '700', color: colors.iosBorder, marginBottom: 1 },
   overlayPoint: { fontSize: 11, color: colors.iosTextSubtle, lineHeight: 15 },
+  overlayExpand: { fontSize: 10, color: colors.iosAccent, marginTop: 2, fontWeight: '600' },
   preview: { width: '100%', height: 180, borderRadius: 10, marginTop: 8, backgroundColor: colors.iosBorder },
   placeholder: { width: '100%', height: 100, borderRadius: 10, marginTop: 8, backgroundColor: colors.iosBorder, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.iosBorderLight },
   placeholderText: { color: colors.iosTextMuted, fontSize: 13 },

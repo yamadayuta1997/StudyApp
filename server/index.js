@@ -189,6 +189,12 @@ function splitIntoSemanticChunks(pageNum, text, diagramDescription, subject) {
 }
 
 const registerJobMap = new Map();
+const REGISTER_JOB_MAX = 100;
+function pruneRegisterJobMap() {
+  while (registerJobMap.size > REGISTER_JOB_MAX) {
+    registerJobMap.delete(registerJobMap.keys().next().value);
+  }
+}
 
 // ---- Textbook cache with Volume persistence ----
 const DATA_DIR = process.env.DATA_DIR || "/app/data";
@@ -342,6 +348,7 @@ app.post("/textbook/register", (req, res, next) => {
 
     const jobId = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
     registerJobMap.set(jobId, { status: "processing", phase: "uploading", progress: 0, total: pages.length, bookId });
+    pruneRegisterJobMap();
     res.status(202).json({ ok: true, bookId, totalPages, subject, bookName, diagramPageNums, jobId, status: "processing" });
 
     setImmediate(() => processTextbookBackground(jobId, bookId, bookName, subject, pages, req.file.buffer, diagramPageNums, totalPages));
@@ -1555,6 +1562,7 @@ const PORT = process.env.PORT || 3001;
 if (require.main === module) {
   app.listen(PORT, "0.0.0.0", async () => {
     console.log(`サーバー起動中: http://0.0.0.0:${PORT} (PORT env=${process.env.PORT})`);
+    console.log(`[registerJobMap] 起動時サイズ: ${registerJobMap.size}`);
     if (isMongoEnabled) {
       await connectMongo();
     }
@@ -1565,3 +1573,6 @@ module.exports.extractIssues = extractIssues;
 module.exports.getEmbedding  = getEmbedding;
 module.exports.splitIntoSemanticChunks = splitIntoSemanticChunks;
 module.exports.extractTopicsFromChunks = extractTopicsFromChunks;
+module.exports.registerJobMap = registerJobMap;
+module.exports.pruneRegisterJobMap = pruneRegisterJobMap;
+module.exports.REGISTER_JOB_MAX = REGISTER_JOB_MAX;

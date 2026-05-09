@@ -362,3 +362,77 @@ describe('textbook — 表示データの完全性', () => {
     expect(SUBJECTS).toContain('経営学');
   });
 });
+
+// ── 重複チェック・件数上限チェック (クライアント側ロジック) ────────────────
+
+const TEXTBOOK_MAX_COUNT = 20;
+
+function isDuplicate(books: TextbookMeta[], bookId: string, overwrite: boolean): boolean {
+  return !overwrite && books.some((b) => b.bookId === bookId);
+}
+
+function isLimitExceeded(books: TextbookMeta[], bookId: string, maxCount: number): boolean {
+  const isNew = !books.some((b) => b.bookId === bookId);
+  return isNew && books.length >= maxCount;
+}
+
+function buildLimitErrorMessage(limit: number): string {
+  return `登録件数の上限（${limit}件）に達しています。不要な教科書を削除してから登録してください。`;
+}
+
+describe('textbook — 重複チェック', () => {
+  const existing = makeBook({ bookId: '財務会計論_テキスト', subject: '財務会計論', bookName: 'テキスト' });
+
+  test('同一bookIdが存在し overwrite=false なら重複と判定', () => {
+    expect(isDuplicate([existing], '財務会計論_テキスト', false)).toBe(true);
+  });
+
+  test('同一bookIdが存在し overwrite=true なら重複と判定しない', () => {
+    expect(isDuplicate([existing], '財務会計論_テキスト', true)).toBe(false);
+  });
+
+  test('存在しないbookIdは重複と判定しない', () => {
+    expect(isDuplicate([existing], '管理会計論_テキスト', false)).toBe(false);
+  });
+
+  test('教科書リストが空の場合は重複なし', () => {
+    expect(isDuplicate([], '財務会計論_テキスト', false)).toBe(false);
+  });
+});
+
+describe('textbook — 件数上限チェック', () => {
+  const makeBooks = (count: number): TextbookMeta[] =>
+    Array.from({ length: count }, (_, i) =>
+      makeBook({ bookId: `財務会計論_book${i}`, bookName: `book${i}` })
+    );
+
+  test('上限未満なら上限エラーなし', () => {
+    expect(isLimitExceeded(makeBooks(19), '財務会計論_new', TEXTBOOK_MAX_COUNT)).toBe(false);
+  });
+
+  test('上限に達している場合は上限エラー', () => {
+    expect(isLimitExceeded(makeBooks(20), '財務会計論_new', TEXTBOOK_MAX_COUNT)).toBe(true);
+  });
+
+  test('上書き（既存bookId）は上限超過でもエラーなし', () => {
+    const books = makeBooks(20);
+    expect(isLimitExceeded(books, '財務会計論_book0', TEXTBOOK_MAX_COUNT)).toBe(false);
+  });
+
+  test('教科書リストが空の場合は上限エラーなし', () => {
+    expect(isLimitExceeded([], '財務会計論_new', TEXTBOOK_MAX_COUNT)).toBe(false);
+  });
+});
+
+describe('textbook — 上限エラーメッセージ', () => {
+  test('上限件数を含むメッセージが生成される', () => {
+    const msg = buildLimitErrorMessage(20);
+    expect(msg).toContain('20件');
+    expect(msg).toContain('上限');
+  });
+
+  test('カスタム上限でもメッセージが生成される', () => {
+    const msg = buildLimitErrorMessage(5);
+    expect(msg).toContain('5件');
+  });
+});

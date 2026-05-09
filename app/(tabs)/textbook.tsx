@@ -167,7 +167,7 @@ export default function TextbookScreen() {
     setShowConfirm(true);
   };
 
-  const handleConfirm = async () => {
+  const executeRegister = async (overwrite: boolean) => {
     if (!selectedFile) return;
     const file = selectedFile;
     setShowConfirm(false);
@@ -193,9 +193,34 @@ export default function TextbookScreen() {
     formData.append("subject", regSubject);
     formData.append("bookName", regBookName.trim());
     formData.append("description", regDescription.trim());
+    if (overwrite) formData.append("overwrite", "true");
 
     try {
       const data = await apiClient.registerTextbook(formData);
+      if (data.error === "duplicate") {
+        setRegLoading(false);
+        Alert.alert(
+          "重複確認",
+          "この教科書はすでに登録されています。上書きしますか？",
+          [
+            { text: "キャンセル", style: "cancel", onPress: () => setShowConfirm(true) },
+            { text: "上書き", style: "destructive", onPress: () => executeRegister(true) },
+          ],
+        );
+        return;
+      }
+      if (data.error === "limit_exceeded") {
+        setRegLoading(false);
+        setRegError(`登録件数の上限（${data.limit}件）に達しています。不要な教科書を削除してから登録してください。`);
+        setShowConfirm(true);
+        return;
+      }
+      if (data.error) {
+        setRegLoading(false);
+        setRegError("登録に失敗しました: " + data.error);
+        setShowConfirm(true);
+        return;
+      }
       if (data.jobId) {
         setRegStatusText("処理中...");
         setRegProgress(computeProgress("uploading"));
@@ -216,6 +241,8 @@ export default function TextbookScreen() {
         : "登録に失敗しました: " + e.message);
     }
   };
+
+  const handleConfirm = () => executeRegister(false);
 
   const filtered = filterSubject ? books.filter(b => b.subject === filterSubject) : books;
 

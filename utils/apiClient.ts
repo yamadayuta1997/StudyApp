@@ -57,7 +57,6 @@ export const apiClient = {
       method: "POST",
       body: formData,
     }, 60000);
-    if (data.error) throw new Error(data.error);
     return data;
   },
 

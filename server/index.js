@@ -259,6 +259,8 @@ function saveTextbookCache() {
 
 loadTextbookCache();
 
+const TEXTBOOK_MAX_COUNT = parseInt(process.env.TEXTBOOK_MAX_COUNT || "20", 10);
+
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -358,6 +360,14 @@ app.post("/textbook/register", (req, res, next) => {
     console.log(`[textbook/register] parsed ${pages.length}/${totalPages} pages`);
 
     const bookId = `${subject}_${bookName}`;
+    const isOverwrite = req.body.overwrite === "true";
+
+    if (textbookCache.has(bookId) && !isOverwrite) {
+      return res.status(409).json({ error: "duplicate", bookId });
+    }
+    if (!textbookCache.has(bookId) && textbookCache.size >= TEXTBOOK_MAX_COUNT) {
+      return res.status(422).json({ error: "limit_exceeded", limit: TEXTBOOK_MAX_COUNT });
+    }
 
     // ---- 図解ページ検出（テキストが少ないページ or pdf-parse が抽出できなかったページ） ----
     const extractedNums = new Set(pages.map(p => p.pageNum));

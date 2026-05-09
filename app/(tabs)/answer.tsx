@@ -10,6 +10,7 @@ import { updateCautionTopics } from "@/utils/cautionTopics";
 import { buildAnswerShareText } from "@/utils/shareResult";
 import { apiClient, TextbookMeta } from "@/utils/apiClient";
 import { pageToX, xToPage, clampFrom, clampTo } from "@/utils/pageRangeSlider";
+import { loadTemplates, saveTemplate, deleteTemplate } from "@/utils/questionTemplates";
 import { useAppTheme } from "@/contexts/ThemeContext";
 import { AppColors } from "@/constants/theme";
 import {
@@ -217,9 +218,14 @@ export default function AnswerScreen() {
   // Copy toast
   const [copyToast, setCopyToast] = useState(false);
 
+  // Question templates
+  const [questionTemplates, setQuestionTemplates] = useState<string[]>([]);
+  const [templateModalVisible, setTemplateModalVisible] = useState(false);
+
   useFocusEffect(useCallback(() => {
     loadBooks();
     loadSubjectAvg(subject);
+    loadTemplates().then(setQuestionTemplates);
   }, []));
 
   useEffect(() => {
@@ -509,6 +515,19 @@ export default function AnswerScreen() {
     setTimeout(() => setCopyToast(false), 2000);
   };
 
+  const handleSaveTemplate = async () => {
+    const { templates, error } = await saveTemplate(questionTemplates, question);
+    if (error) { setError(error); return; }
+    setQuestionTemplates(templates);
+    setCopyToast(true);
+    setTimeout(() => setCopyToast(false), 2000);
+  };
+
+  const handleDeleteTemplate = async (index: number) => {
+    const next = await deleteTemplate(questionTemplates, index);
+    setQuestionTemplates(next);
+  };
+
   const handleCopyAll = () => {
     const lines: string[] = [];
     lines.push(`【${subject}】採点結果`);
@@ -661,6 +680,22 @@ export default function AnswerScreen() {
             onChangeText={setQuestion}
           />
           <Text style={styles.charCount}>{question.length.toLocaleString()} 文字</Text>
+          <View style={styles.templateButtonRow}>
+            <TouchableOpacity
+              style={[styles.templateButton, !question.trim() && styles.templateButtonDisabled]}
+              onPress={handleSaveTemplate}
+              disabled={!question.trim()}
+            >
+              <Text style={styles.templateButtonText}>💾 テンプレートとして保存</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.templateButton, styles.templateLoadButton, questionTemplates.length === 0 && styles.templateButtonDisabled]}
+              onPress={() => setTemplateModalVisible(true)}
+              disabled={questionTemplates.length === 0}
+            >
+              <Text style={[styles.templateButtonText, styles.templateLoadButtonText]}>📂 テンプレートから選択{questionTemplates.length > 0 ? ` (${questionTemplates.length})` : ""}</Text>
+            </TouchableOpacity>
+          </View>
         </>
       ) : (
         <>
@@ -1102,6 +1137,33 @@ export default function AnswerScreen() {
         </View>
       </Modal>
 
+      {/* テンプレートモーダル */}
+      <Modal visible={templateModalVisible} animationType="slide" transparent onRequestClose={() => setTemplateModalVisible(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.templateModal}>
+            <Text style={styles.templateModalTitle}>📂 テンプレートから選択</Text>
+            <ScrollView style={styles.templateModalScroll}>
+              {questionTemplates.map((tmpl, i) => (
+                <View key={i} style={styles.templateItem}>
+                  <TouchableOpacity
+                    style={styles.templateItemContent}
+                    onPress={() => { setQuestion(tmpl); setTemplateModalVisible(false); }}
+                  >
+                    <Text style={styles.templateItemText} numberOfLines={3}>{tmpl}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.templateItemDelete} onPress={() => handleDeleteTemplate(i)}>
+                    <Text style={styles.templateItemDeleteText}>🗑</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+            <TouchableOpacity style={styles.templateModalClose} onPress={() => setTemplateModalVisible(false)}>
+              <Text style={styles.templateModalCloseText}>閉じる</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* 参考ページモーダル */}
       <Modal visible={refPageModalText !== ""} animationType="fade" transparent onRequestClose={() => setRefPageModalText("")}>
         <View style={styles.modalOverlay}>
@@ -1270,6 +1332,22 @@ function createStyles(colors: AppColors) {
     avgScoreText: { fontSize: 13, color: colors.textAccent, fontWeight: "600" as const },
     avgScoreValue: { color: colors.accent, fontWeight: "bold" as const },
     avgScoreFirstText: { fontSize: 13, color: colors.successText, fontWeight: "600" as const },
+    templateButtonRow: { flexDirection: "row" as const, gap: 8, marginTop: 8 },
+    templateButton: { flex: 1, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1.5, borderColor: colors.accentBorder, backgroundColor: colors.accentBg, alignItems: "center" as const },
+    templateLoadButton: { borderColor: colors.successBorder, backgroundColor: colors.successBg },
+    templateButtonDisabled: { opacity: 0.4 },
+    templateButtonText: { fontSize: 12, fontWeight: "600" as const, color: colors.accent },
+    templateLoadButtonText: { color: colors.successDark },
+    templateModal: { backgroundColor: colors.cardBg, borderRadius: 20, padding: 20, width: "100%", maxHeight: "70%" },
+    templateModalTitle: { fontSize: 16, fontWeight: "bold" as const, color: colors.textAccent, marginBottom: 12 },
+    templateModalScroll: { maxHeight: 360, marginBottom: 12 },
+    templateItem: { flexDirection: "row" as const, alignItems: "center" as const, borderBottomWidth: 1, borderBottomColor: colors.cardBorder, paddingVertical: 10, gap: 8 },
+    templateItemContent: { flex: 1 },
+    templateItemText: { fontSize: 13, color: colors.textPrimary, lineHeight: 18 },
+    templateItemDelete: { paddingHorizontal: 8, paddingVertical: 4 },
+    templateItemDeleteText: { fontSize: 18 },
+    templateModalClose: { backgroundColor: colors.accent, borderRadius: 10, padding: 12, alignItems: "center" as const },
+    templateModalCloseText: { color: colors.textInverse, fontWeight: "bold" as const, fontSize: 15 },
   });
 }
 

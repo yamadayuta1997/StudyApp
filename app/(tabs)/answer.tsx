@@ -8,6 +8,8 @@ import { updateCautionTopics } from "@/utils/cautionTopics";
 import { buildAnswerShareText } from "@/utils/shareResult";
 import { apiClient, TextbookMeta } from "@/utils/apiClient";
 import { pageToX, xToPage, clampFrom, clampTo } from "@/utils/pageRangeSlider";
+import { useAppTheme } from "@/contexts/ThemeContext";
+import { AppColors } from "@/constants/theme";
 import {
   ActivityIndicator,
   Image,
@@ -32,6 +34,8 @@ function RangeSlider({ min, max, from, to, onFromChange, onToChange }: {
   min: number; max: number; from: number; to: number;
   onFromChange: (v: number) => void; onToChange: (v: number) => void;
 }) {
+  const { colors } = useAppTheme();
+  const sliderStyles = createSliderStyles(colors);
   const [trackWidth, setTrackWidth] = useState(0);
   const trackWidthRef = useRef(0);
   const fromStartXRef = useRef(0);
@@ -121,14 +125,16 @@ function RangeSlider({ min, max, from, to, onFromChange, onToChange }: {
   );
 }
 
-const sliderStyles = StyleSheet.create({
-  wrapper: { paddingVertical: 4 },
-  track: { height: 4, backgroundColor: "#e2e8f0", borderRadius: 2, position: "relative", marginVertical: 16, marginHorizontal: 16 },
-  fill: { position: "absolute", height: 4, backgroundColor: "#2563eb", borderRadius: 2 },
-  thumb: { position: "absolute", top: -10, width: 24, height: 24, borderRadius: 12, backgroundColor: "#2563eb", borderWidth: 3, borderColor: "#fff", elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3 },
-  minMaxLabels: { flexDirection: "row", justifyContent: "space-between", marginHorizontal: 8 },
-  minMaxText: { fontSize: 11, color: "#94a3b8" },
-});
+function createSliderStyles(colors: AppColors) {
+  return StyleSheet.create({
+    wrapper: { paddingVertical: 4 },
+    track: { height: 4, backgroundColor: colors.cardBorder, borderRadius: 2, position: "relative", marginVertical: 16, marginHorizontal: 16 },
+    fill: { position: "absolute", height: 4, backgroundColor: colors.accent, borderRadius: 2 },
+    thumb: { position: "absolute", top: -10, width: 24, height: 24, borderRadius: 12, backgroundColor: colors.accent, borderWidth: 3, borderColor: colors.cardBg, elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3 },
+    minMaxLabels: { flexDirection: "row", justifyContent: "space-between", marginHorizontal: 8 },
+    minMaxText: { fontSize: 11, color: colors.textMuted },
+  });
+}
 
 const MAX_IMAGES = 10;
 
@@ -137,6 +143,9 @@ const SUBJECTS = ["財務会計論", "管理会計論", "監査論", "企業法"
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
 export default function AnswerScreen() {
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
+  const markdownStyles = createMarkdownStyles(colors);
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
   const insets = useSafeAreaInsets();
@@ -600,7 +609,7 @@ export default function AnswerScreen() {
             style={styles.input}
             multiline
             placeholder="問題文を入力、またはPDFから読み込んでください"
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor={colors.textMuted}
             value={question}
             onChangeText={setQuestion}
           />
@@ -624,9 +633,9 @@ export default function AnswerScreen() {
               ))}
               <View style={styles.pageRangeRow}>
                 <Text style={styles.pageRangeLabel}>ページ範囲：P.</Text>
-                <TextInput style={styles.pageInput} value={sourceFromPage} onChangeText={setSourceFromPage} placeholder="開始" keyboardType="numeric" placeholderTextColor="#94a3b8" />
+                <TextInput style={styles.pageInput} value={sourceFromPage} onChangeText={setSourceFromPage} placeholder="開始" keyboardType="numeric" placeholderTextColor={colors.textMuted} />
                 <Text style={styles.pageRangeSep}>〜P.</Text>
-                <TextInput style={styles.pageInput} value={sourceToPage} onChangeText={setSourceToPage} placeholder="終了" keyboardType="numeric" placeholderTextColor="#94a3b8" />
+                <TextInput style={styles.pageInput} value={sourceToPage} onChangeText={setSourceToPage} placeholder="終了" keyboardType="numeric" placeholderTextColor={colors.textMuted} />
               </View>
               <TouchableOpacity
                 style={[styles.loadChunksButton, (!sourceBookId || chunksLoading) && styles.buttonDisabled]}
@@ -649,7 +658,7 @@ export default function AnswerScreen() {
                 multiline
                 value={question}
                 onChangeText={setQuestion}
-                placeholderTextColor="#94a3b8"
+                placeholderTextColor={colors.textMuted}
               />
             </>
           )}
@@ -744,7 +753,7 @@ export default function AnswerScreen() {
         style={styles.input}
         multiline
         placeholder="答案を入力、または写真をアップロードしてください"
-        placeholderTextColor="#94a3b8"
+        placeholderTextColor={colors.textMuted}
         value={answer}
         onChangeText={setAnswer}
       />
@@ -969,7 +978,7 @@ export default function AnswerScreen() {
                   value={chatInput}
                   onChangeText={setChatInput}
                   placeholder="採点結果について質問..."
-                  placeholderTextColor="#94a3b8"
+                  placeholderTextColor={colors.textMuted}
                   multiline
                   maxLength={500}
                 />
@@ -1028,149 +1037,156 @@ export default function AnswerScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  scroll: { backgroundColor: "#f1f5f9" },
-  container: { padding: 20 },
-  header: { backgroundColor: "#1e40af", borderRadius: 16, padding: 24, marginBottom: 20, alignItems: "center" },
-  headerTitle: { fontSize: 24, fontWeight: "bold", color: "#fff", marginBottom: 4 },
-  headerSub: { fontSize: 14, color: "#bfdbfe" },
-  section: {
-    backgroundColor: "#fff", borderRadius: 14, padding: 16, marginBottom: 16,
-    borderWidth: 1, borderColor: "#e2e8f0",
-    shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3,
-  },
-  tabletRow: { flexDirection: "row", gap: 12, marginBottom: 16 },
-  tabletHalf: { flex: 1, marginBottom: 0 },
-  sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  sectionTitle: { fontSize: 15, fontWeight: "bold", color: "#1e40af", marginBottom: 10 },
-  subjectGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  subjectButton: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderColor: "#cbd5e1", backgroundColor: "#f8fafc" },
-  subjectButtonActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  subjectText: { color: "#64748b", fontSize: 13, fontWeight: "600" },
-  subjectTextActive: { color: "#fff" },
-  bookSelectRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#f1f5f9", gap: 10 },
-  bookCheckbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: "#cbd5e1", alignItems: "center", justifyContent: "center" },
-  bookCheckboxActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  bookCheckmark: { color: "#fff", fontSize: 13, fontWeight: "bold" },
-  bookSelectName: { flex: 1, fontSize: 14, color: "#1e293b" },
-  bookSelectPages: { fontSize: 12, color: "#94a3b8" },
-  uploadButton: { backgroundColor: "#eff6ff", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: "#bfdbfe", minWidth: 44, alignItems: "center" },
-  uploadButtonText: { color: "#2563eb", fontSize: 13, fontWeight: "600" },
-  pageRangeSection: { marginBottom: 10 },
-  pageRangeHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
-  pageRangeLabel: { fontSize: 13, color: "#64748b", fontWeight: "600" },
-  allPagesToggle: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5, borderColor: "#cbd5e1", backgroundColor: "#f8fafc" },
-  allPagesToggleActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  allPagesToggleText: { fontSize: 12, fontWeight: "600", color: "#64748b" },
-  allPagesToggleTextActive: { color: "#fff" },
-  pageRangeDisplay: { fontSize: 13, color: "#2563eb", fontWeight: "600", textAlign: "center", marginTop: 2 },
-  pdfPreview: { backgroundColor: "#f0fdf4", borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: "#bbf7d0", flexDirection: "row", justifyContent: "space-between" },
-  pdfPreviewText: { fontSize: 12, color: "#166534" },
-  imagePagesWarning: { backgroundColor: "#fffbeb", borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: "#fde68a" },
-  imagePagesWarningText: { fontSize: 12, color: "#92400e" },
-  input: { backgroundColor: "#f8fafc", borderRadius: 10, padding: 14, fontSize: 15, minHeight: 140, borderWidth: 1.5, borderColor: "#e2e8f0", textAlignVertical: "top", color: "#1e293b", lineHeight: 22 },
-  charCount: { fontSize: 12, color: "#94a3b8", textAlign: "right", marginTop: 6 },
-  imageButtonRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
-  imageButton: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1.5, alignItems: "center" },
-  imageButtonText: { fontSize: 13, fontWeight: "600" },
-  imagePreview: { width: "100%", height: 160, borderRadius: 10, backgroundColor: "#e5e7eb", marginBottom: 10 },
-  ocrStatus: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: "#f5f3ff", borderRadius: 8, padding: 10, marginBottom: 10 },
-  ocrStatusText: { color: "#7c3aed", fontSize: 13 },
-  ocrDone: { backgroundColor: "#f0fdf4", borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: "#bbf7d0" },
-  ocrDoneText: { color: "#166534", fontSize: 13 },
-  answerImagesSection: { marginTop: 10 },
-  answerImagesHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
-  answerImagesLabel: { fontSize: 13, color: "#64748b", flex: 1 },
-  imageCountBadge: { fontSize: 12, color: "#64748b", fontWeight: "600" },
-  thumbnailRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
-  thumbnailContainer: { position: "relative", marginRight: 8 },
-  thumbnail: { width: 72, height: 72, borderRadius: 8, borderWidth: 1, borderColor: "#e2e8f0" },
-  thumbnailDelete: { position: "absolute", top: -6, right: -6, backgroundColor: "#dc2626", width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  thumbnailDeleteText: { color: "#fff", fontSize: 11, fontWeight: "bold" },
-  thumbnailDragging: { borderWidth: 2, borderColor: "#2563eb", borderRadius: 8, opacity: 0.9 },
-  dragHandle: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "rgba(37,99,235,0.7)", borderBottomLeftRadius: 8, borderBottomRightRadius: 8, alignItems: "center", paddingVertical: 1 },
-  dragHandleText: { color: "#fff", fontSize: 9, letterSpacing: 1 },
-  button: { backgroundColor: "#2563eb", paddingVertical: 16, borderRadius: 14, alignItems: "center", marginBottom: 8, shadowColor: "#2563eb", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
-  buttonDisabled: { backgroundColor: "#94a3b8", shadowOpacity: 0 },
-  buttonText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
-  hint: { textAlign: "center", color: "#94a3b8", fontSize: 13, marginBottom: 16 },
-  errorBox: { backgroundColor: "#fef2f2", borderRadius: 10, padding: 14, marginBottom: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderWidth: 1, borderColor: "#fecaca" },
-  errorText: { color: "#dc2626", fontSize: 14, flex: 1 },
-  errorClose: { color: "#dc2626", fontSize: 18, fontWeight: "bold", marginLeft: 8 },
-  summaryCard: { backgroundColor: "#fefce8", borderRadius: 14, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: "#fde68a" },
-  summaryTitle: { fontSize: 15, fontWeight: "bold", color: "#854d0e", marginBottom: 8 },
-  summaryText: { fontSize: 14, color: "#78350f", lineHeight: 22 },
-  resultCard: { backgroundColor: "#fff", borderRadius: 14, padding: 20, marginTop: 8, borderWidth: 1, borderColor: "#e2e8f0", shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 6 },
-  resultHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  resultTitle: { fontSize: 18, fontWeight: "bold", color: "#1e40af" },
-  resultBadge: { backgroundColor: "#eff6ff", paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20, borderWidth: 1, borderColor: "#bfdbfe" },
-  resultBadgeText: { color: "#2563eb", fontSize: 12, fontWeight: "600" },
-  resultDivider: { height: 1, backgroundColor: "#e2e8f0", marginBottom: 14 },
-  refPagesCard: { backgroundColor: "#fff", borderRadius: 14, padding: 16, marginTop: 10, borderWidth: 1, borderColor: "#e2e8f0" },
-  refPagesTitle: { fontSize: 14, fontWeight: "bold", color: "#1e40af", marginBottom: 10 },
-  refPagesRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  refPageChip: { backgroundColor: "#eff6ff", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: "#bfdbfe" },
-  refPageChipText: { color: "#2563eb", fontSize: 13, fontWeight: "600" },
-  chatSection: { backgroundColor: "#fff", borderRadius: 14, padding: 16, marginTop: 12, borderWidth: 1, borderColor: "#e2e8f0" },
-  chatTitle: { fontSize: 15, fontWeight: "bold", color: "#1e40af", marginBottom: 12 },
-  bubble: { maxWidth: "85%", borderRadius: 12, padding: 12, marginBottom: 8 },
-  bubbleUser: { backgroundColor: "#2563eb", alignSelf: "flex-end", borderBottomRightRadius: 4 },
-  bubbleAssistant: { backgroundColor: "#f1f5f9", alignSelf: "flex-start", borderBottomLeftRadius: 4 },
-  bubbleText: { fontSize: 14, lineHeight: 20 },
-  bubbleTextUser: { color: "#fff" },
-  bubbleTextAssistant: { color: "#1e293b" },
-  chatInputRow: { flexDirection: "row", gap: 8, marginTop: 8, alignItems: "flex-end" },
-  chatInput: { flex: 1, backgroundColor: "#f8fafc", borderRadius: 10, padding: 12, fontSize: 14, borderWidth: 1.5, borderColor: "#e2e8f0", color: "#1e293b", maxHeight: 100 },
-  chatSendButton: { backgroundColor: "#2563eb", paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10 },
-  chatSendButtonDisabled: { backgroundColor: "#94a3b8" },
-  chatSendText: { color: "#fff", fontSize: 14, fontWeight: "bold" },
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
-  refModal: { backgroundColor: "#fff", borderRadius: 16, padding: 20, width: "100%", maxHeight: "70%" },
-  refModalTitle: { fontSize: 16, fontWeight: "bold", color: "#1e40af", marginBottom: 12 },
-  refModalScroll: { maxHeight: 300, marginBottom: 16 },
-  refModalText: { fontSize: 14, color: "#334155", lineHeight: 22 },
-  refModalClose: { backgroundColor: "#2563eb", borderRadius: 10, padding: 12, alignItems: "center" },
-  refModalCloseText: { color: "#fff", fontWeight: "bold", fontSize: 15 },
-  subjectModal: { backgroundColor: "#fff", borderRadius: 20, padding: 24, width: "100%" },
-  subjectModalTitle: { fontSize: 17, fontWeight: "bold", color: "#1e40af", marginBottom: 16, textAlign: "center" },
-  subjectModalActions: { flexDirection: "row", gap: 10, marginTop: 20 },
-  subjectModalCancel: { flex: 1, backgroundColor: "#f1f5f9", borderRadius: 12, padding: 14, alignItems: "center" },
-  subjectModalCancelText: { color: "#64748b", fontSize: 15, fontWeight: "600" },
-  subjectModalConfirm: { flex: 2, backgroundColor: "#2563eb", borderRadius: 12, padding: 14, alignItems: "center" },
-  subjectModalConfirmText: { color: "#fff", fontSize: 15, fontWeight: "bold" },
-  sourceToggleRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
-  sourceToggleBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5, borderColor: "#cbd5e1", backgroundColor: "#f8fafc", alignItems: "center" },
-  sourceToggleBtnActive: { backgroundColor: "#1e40af", borderColor: "#1e40af" },
-  sourceToggleText: { fontSize: 13, fontWeight: "600", color: "#64748b" },
-  sourceToggleTextActive: { color: "#fff" },
-  noBooksText: { fontSize: 13, color: "#94a3b8", textAlign: "center", marginVertical: 12 },
-  loadChunksButton: { backgroundColor: "#0891b2", paddingVertical: 12, borderRadius: 10, alignItems: "center", marginTop: 10 },
-  loadChunksButtonText: { color: "#fff", fontSize: 14, fontWeight: "bold" },
-  inputReadonly: { backgroundColor: "#f0f9ff", borderColor: "#bae6fd" },
-  topicEvalCard: { backgroundColor: "#fff", borderRadius: 14, padding: 16, marginTop: 10, borderWidth: 1, borderColor: "#e2e8f0" },
-  topicEvalTitle: { fontSize: 15, fontWeight: "bold", color: "#1e40af", marginBottom: 10 },
-  topicListSection: { backgroundColor: "#f8fafc", borderRadius: 8, padding: 10, marginBottom: 10 },
-  topicListTitle: { fontSize: 13, fontWeight: "600", color: "#475569", marginBottom: 4 },
-  topicItem: { fontSize: 13, color: "#334155", marginBottom: 2 },
-  topicRow: { paddingVertical: 4 },
-  topicPresent: { fontSize: 14, color: "#15803d" },
-  topicMissing: { fontSize: 14, color: "#dc2626" },
-  topicIrrelevant: { fontSize: 14, color: "#d97706" },
-  ctaBanner: { backgroundColor: "#eff6ff", borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: "#bfdbfe", flexDirection: "row", alignItems: "center", gap: 12 },
-  ctaBannerText: { flex: 1, fontSize: 13, color: "#1e40af", fontWeight: "600" },
-  ctaBannerButton: { backgroundColor: "#2563eb", paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10 },
-  ctaBannerButtonText: { color: "#fff", fontSize: 13, fontWeight: "bold" },
-  shareButton: { backgroundColor: "#f0fdf4", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: "#bbf7d0" },
-  shareButtonText: { color: "#166534", fontSize: 13, fontWeight: "600" },
-});
+function createStyles(colors: AppColors) {
+  return StyleSheet.create({
+    flex: { flex: 1 },
+    scroll: { backgroundColor: colors.screenBg },
+    container: { padding: 20 },
+    header: { backgroundColor: colors.accentDark, borderRadius: 16, padding: 24, marginBottom: 20, alignItems: "center" },
+    headerTitle: { fontSize: 24, fontWeight: "bold", color: colors.textInverse, marginBottom: 4 },
+    headerSub: { fontSize: 14, color: colors.accentBorder },
+    section: {
+      backgroundColor: colors.cardBg, borderRadius: 14, padding: 16, marginBottom: 16,
+      borderWidth: 1, borderColor: colors.cardBorder,
+      shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 3,
+    },
+    tabletRow: { flexDirection: "row", gap: 12, marginBottom: 16 },
+    tabletHalf: { flex: 1, marginBottom: 0 },
+    sectionHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+    sectionTitle: { fontSize: 15, fontWeight: "bold", color: colors.textAccent, marginBottom: 10 },
+    subjectGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    subjectButton: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderColor: colors.inputBorderAlt, backgroundColor: colors.inputBg },
+    subjectButtonActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    subjectText: { color: colors.textSecondary, fontSize: 13, fontWeight: "600" },
+    subjectTextActive: { color: colors.textInverse },
+    bookSelectRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.screenBg, gap: 10 },
+    bookCheckbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: colors.inputBorderAlt, alignItems: "center", justifyContent: "center" },
+    bookCheckboxActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    bookCheckmark: { color: colors.textInverse, fontSize: 13, fontWeight: "bold" },
+    bookSelectName: { flex: 1, fontSize: 14, color: colors.textPrimary },
+    bookSelectPages: { fontSize: 12, color: colors.textMuted },
+    uploadButton: { backgroundColor: colors.accentBg, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.accentBorder, minWidth: 44, alignItems: "center" },
+    uploadButtonText: { color: colors.accent, fontSize: 13, fontWeight: "600" },
+    pageRangeSection: { marginBottom: 10 },
+    pageRangeHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+    pageRangeLabel: { fontSize: 13, color: colors.textSecondary, fontWeight: "600" },
+    allPagesToggle: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5, borderColor: colors.inputBorderAlt, backgroundColor: colors.inputBg },
+    allPagesToggleActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    allPagesToggleText: { fontSize: 12, fontWeight: "600", color: colors.textSecondary },
+    allPagesToggleTextActive: { color: colors.textInverse },
+    pageRangeDisplay: { fontSize: 13, color: colors.accent, fontWeight: "600", textAlign: "center", marginTop: 2 },
+    pdfPreview: { backgroundColor: colors.successBg, borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: colors.successBorder, flexDirection: "row", justifyContent: "space-between" },
+    pdfPreviewText: { fontSize: 12, color: colors.successDark },
+    imagePagesWarning: { backgroundColor: colors.warningBgAlt, borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: colors.warningBorderAlt },
+    imagePagesWarningText: { fontSize: 12, color: colors.warningDark },
+    input: { backgroundColor: colors.inputBg, borderRadius: 10, padding: 14, fontSize: 15, minHeight: 140, borderWidth: 1.5, borderColor: colors.inputBorder, textAlignVertical: "top", color: colors.textPrimary, lineHeight: 22 },
+    charCount: { fontSize: 12, color: colors.textMuted, textAlign: "right", marginTop: 6 },
+    imageButtonRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
+    imageButton: { flex: 1, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1.5, alignItems: "center" },
+    imageButtonText: { fontSize: 13, fontWeight: "600" },
+    imagePreview: { width: "100%", height: 160, borderRadius: 10, backgroundColor: colors.cardBorder, marginBottom: 10 },
+    ocrStatus: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: colors.purpleBg, borderRadius: 8, padding: 10, marginBottom: 10 },
+    ocrStatusText: { color: colors.purple, fontSize: 13 },
+    ocrDone: { backgroundColor: colors.successBg, borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: colors.successBorder },
+    ocrDoneText: { color: colors.successDark, fontSize: 13 },
+    answerImagesSection: { marginTop: 10 },
+    answerImagesHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+    answerImagesLabel: { fontSize: 13, color: colors.textSecondary, flex: 1 },
+    imageCountBadge: { fontSize: 12, color: colors.textSecondary, fontWeight: "600" },
+    thumbnailRow: { flexDirection: "row", gap: 8, flexWrap: "wrap" },
+    thumbnailContainer: { position: "relative", marginRight: 8 },
+    thumbnail: { width: 72, height: 72, borderRadius: 8, borderWidth: 1, borderColor: colors.cardBorder },
+    thumbnailDelete: { position: "absolute", top: -6, right: -6, backgroundColor: colors.dangerText, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+    thumbnailDeleteText: { color: colors.textInverse, fontSize: 11, fontWeight: "bold" },
+    thumbnailDragging: { borderWidth: 2, borderColor: colors.accent, borderRadius: 8, opacity: 0.9 },
+    dragHandle: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "rgba(37,99,235,0.7)", borderBottomLeftRadius: 8, borderBottomRightRadius: 8, alignItems: "center", paddingVertical: 1 },
+    dragHandleText: { color: colors.textInverse, fontSize: 9, letterSpacing: 1 },
+    button: { backgroundColor: colors.accent, paddingVertical: 16, borderRadius: 14, alignItems: "center", marginBottom: 8, shadowColor: colors.accent, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8 },
+    buttonDisabled: { backgroundColor: colors.textMuted, shadowOpacity: 0 },
+    buttonText: { color: colors.textInverse, fontSize: 18, fontWeight: "bold" },
+    hint: { textAlign: "center", color: colors.textMuted, fontSize: 13, marginBottom: 16 },
+    errorBox: { backgroundColor: colors.dangerBgAlt, borderRadius: 10, padding: 14, marginBottom: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderWidth: 1, borderColor: colors.dangerBorderAlt },
+    errorText: { color: colors.dangerText, fontSize: 14, flex: 1 },
+    errorClose: { color: colors.dangerText, fontSize: 18, fontWeight: "bold", marginLeft: 8 },
+    summaryCard: { backgroundColor: colors.warningBgAlt, borderRadius: 14, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: colors.warningBorderAlt },
+    summaryTitle: { fontSize: 15, fontWeight: "bold", color: colors.amberText, marginBottom: 8 },
+    summaryText: { fontSize: 14, color: colors.amberTextDark, lineHeight: 22 },
+    resultCard: { backgroundColor: colors.cardBg, borderRadius: 14, padding: 20, marginTop: 8, borderWidth: 1, borderColor: colors.cardBorder, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 6 },
+    resultHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+    resultTitle: { fontSize: 18, fontWeight: "bold", color: colors.textAccent },
+    resultBadge: { backgroundColor: colors.accentBg, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 20, borderWidth: 1, borderColor: colors.accentBorder },
+    resultBadgeText: { color: colors.accent, fontSize: 12, fontWeight: "600" },
+    resultDivider: { height: 1, backgroundColor: colors.cardBorder, marginBottom: 14 },
+    refPagesCard: { backgroundColor: colors.cardBg, borderRadius: 14, padding: 16, marginTop: 10, borderWidth: 1, borderColor: colors.cardBorder },
+    refPagesTitle: { fontSize: 14, fontWeight: "bold", color: colors.textAccent, marginBottom: 10 },
+    refPagesRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    refPageChip: { backgroundColor: colors.accentBg, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: colors.accentBorder },
+    refPageChipText: { color: colors.accent, fontSize: 13, fontWeight: "600" },
+    chatSection: { backgroundColor: colors.cardBg, borderRadius: 14, padding: 16, marginTop: 12, borderWidth: 1, borderColor: colors.cardBorder },
+    chatTitle: { fontSize: 15, fontWeight: "bold", color: colors.textAccent, marginBottom: 12 },
+    bubble: { maxWidth: "85%", borderRadius: 12, padding: 12, marginBottom: 8 },
+    bubbleUser: { backgroundColor: colors.accent, alignSelf: "flex-end", borderBottomRightRadius: 4 },
+    bubbleAssistant: { backgroundColor: colors.screenBg, alignSelf: "flex-start", borderBottomLeftRadius: 4 },
+    bubbleText: { fontSize: 14, lineHeight: 20 },
+    bubbleTextUser: { color: colors.textInverse },
+    bubbleTextAssistant: { color: colors.textPrimary },
+    chatInputRow: { flexDirection: "row", gap: 8, marginTop: 8, alignItems: "flex-end" },
+    chatInput: { flex: 1, backgroundColor: colors.inputBg, borderRadius: 10, padding: 12, fontSize: 14, borderWidth: 1.5, borderColor: colors.inputBorder, color: colors.textPrimary, maxHeight: 100 },
+    chatSendButton: { backgroundColor: colors.accent, paddingVertical: 12, paddingHorizontal: 16, borderRadius: 10 },
+    chatSendButtonDisabled: { backgroundColor: colors.textMuted },
+    chatSendText: { color: colors.textInverse, fontSize: 14, fontWeight: "bold" },
+    modalOverlay: { flex: 1, backgroundColor: colors.overlay, justifyContent: "center", alignItems: "center", padding: 20 },
+    refModal: { backgroundColor: colors.cardBg, borderRadius: 16, padding: 20, width: "100%", maxHeight: "70%" },
+    refModalTitle: { fontSize: 16, fontWeight: "bold", color: colors.textAccent, marginBottom: 12 },
+    refModalScroll: { maxHeight: 300, marginBottom: 16 },
+    refModalText: { fontSize: 14, color: colors.textSecondary, lineHeight: 22 },
+    refModalClose: { backgroundColor: colors.accent, borderRadius: 10, padding: 12, alignItems: "center" },
+    refModalCloseText: { color: colors.textInverse, fontWeight: "bold", fontSize: 15 },
+    subjectModal: { backgroundColor: colors.cardBg, borderRadius: 20, padding: 24, width: "100%" },
+    subjectModalTitle: { fontSize: 17, fontWeight: "bold", color: colors.textAccent, marginBottom: 16, textAlign: "center" },
+    subjectModalActions: { flexDirection: "row", gap: 10, marginTop: 20 },
+    subjectModalCancel: { flex: 1, backgroundColor: colors.statCardBg, borderRadius: 12, padding: 14, alignItems: "center" },
+    subjectModalCancelText: { color: colors.textSecondary, fontSize: 15, fontWeight: "600" },
+    subjectModalConfirm: { flex: 2, backgroundColor: colors.accent, borderRadius: 12, padding: 14, alignItems: "center" },
+    subjectModalConfirmText: { color: colors.textInverse, fontSize: 15, fontWeight: "bold" },
+    sourceToggleRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+    sourceToggleBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, borderWidth: 1.5, borderColor: colors.inputBorderAlt, backgroundColor: colors.inputBg, alignItems: "center" },
+    sourceToggleBtnActive: { backgroundColor: colors.accentDark, borderColor: colors.accentDark },
+    sourceToggleText: { fontSize: 13, fontWeight: "600", color: colors.textSecondary },
+    sourceToggleTextActive: { color: colors.textInverse },
+    noBooksText: { fontSize: 13, color: colors.textMuted, textAlign: "center", marginVertical: 12 },
+    loadChunksButton: { backgroundColor: colors.cyan, paddingVertical: 12, borderRadius: 10, alignItems: "center", marginTop: 10 },
+    loadChunksButtonText: { color: colors.textInverse, fontSize: 14, fontWeight: "bold" },
+    inputReadonly: { backgroundColor: colors.infoBg, borderColor: colors.infoBorder },
+    topicEvalCard: { backgroundColor: colors.cardBg, borderRadius: 14, padding: 16, marginTop: 10, borderWidth: 1, borderColor: colors.cardBorder },
+    topicEvalTitle: { fontSize: 15, fontWeight: "bold", color: colors.textAccent, marginBottom: 10 },
+    topicListSection: { backgroundColor: colors.statCardBg, borderRadius: 8, padding: 10, marginBottom: 10 },
+    topicListTitle: { fontSize: 13, fontWeight: "600", color: colors.textSecondary, marginBottom: 4 },
+    topicItem: { fontSize: 13, color: colors.textSecondary, marginBottom: 2 },
+    topicRow: { paddingVertical: 4 },
+    topicPresent: { fontSize: 14, color: colors.successText },
+    topicMissing: { fontSize: 14, color: colors.dangerText },
+    topicIrrelevant: { fontSize: 14, color: colors.warningText },
+    ctaBanner: { backgroundColor: colors.accentBg, borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: colors.accentBorder, flexDirection: "row", alignItems: "center", gap: 12 },
+    ctaBannerText: { flex: 1, fontSize: 13, color: colors.textAccent, fontWeight: "600" },
+    ctaBannerButton: { backgroundColor: colors.accent, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10 },
+    ctaBannerButtonText: { color: colors.textInverse, fontSize: 13, fontWeight: "bold" },
+    shareButton: { backgroundColor: colors.successBg, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.successBorder },
+    shareButtonText: { color: colors.successDark, fontSize: 13, fontWeight: "600" },
+    pageRangeRow: { flexDirection: "row" as const, alignItems: "center" as const, marginBottom: 10, gap: 6 },
+    pageInput: { width: 56, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 8, padding: 6, fontSize: 13, textAlign: "center" as const, color: colors.textPrimary, backgroundColor: colors.inputBg },
+    pageRangeSep: { fontSize: 13, color: colors.textMuted },
+  });
+}
 
-const markdownStyles = {
-  body: { fontSize: 15, lineHeight: 24, color: "#334155" },
-  heading1: { fontSize: 20, fontWeight: "bold" as const, color: "#1e40af", marginVertical: 8 },
-  heading2: { fontSize: 17, fontWeight: "bold" as const, color: "#2563eb", marginVertical: 6 },
-  heading3: { fontSize: 15, fontWeight: "bold" as const, color: "#3b82f6", marginVertical: 4 },
-  strong: { fontWeight: "bold" as const },
-  bullet_list: { marginVertical: 4 },
-  list_item: { marginVertical: 2 },
-};
+function createMarkdownStyles(colors: AppColors) {
+  return {
+    body: { fontSize: 15, lineHeight: 24, color: colors.textSecondary },
+    heading1: { fontSize: 20, fontWeight: "bold" as const, color: colors.textAccent, marginVertical: 8 },
+    heading2: { fontSize: 17, fontWeight: "bold" as const, color: colors.accent, marginVertical: 6 },
+    heading3: { fontSize: 15, fontWeight: "bold" as const, color: colors.accent, marginVertical: 4 },
+    strong: { fontWeight: "bold" as const },
+    bullet_list: { marginVertical: 4 },
+    list_item: { marginVertical: 2 },
+  };
+}

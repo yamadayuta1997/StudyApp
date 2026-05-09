@@ -11,13 +11,15 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/utils/supabase';
 import { useNetworkStatus } from '@/utils/useNetworkStatus';
 import { loadNotificationTime, requestNotificationPermission, scheduleReminderNotification } from '@/utils/notifications';
+import { ThemeProvider as AppThemeProvider, useAppTheme } from '@/contexts/ThemeContext';
 
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
-export default function RootLayout() {
+function AppContent() {
   const colorScheme = useColorScheme();
+  const { colorScheme: appScheme } = useAppTheme();
   const segments = useSegments();
   const [session, setSession] = useState<Session | null | undefined>(undefined);
   const { isOnline } = useNetworkStatus();
@@ -50,20 +52,28 @@ export default function RootLayout() {
   if (session === undefined) return null;
 
   return (
+    <ThemeProvider value={appScheme === 'dark' ? DarkTheme : DefaultTheme}>
+      {!isOnline && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineText}>オフラインです。接続を確認してください</Text>
+        </View>
+      )}
+      <Stack>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="login" options={{ headerShown: false }} />
+        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+      </Stack>
+      <StatusBar style={appScheme === 'dark' ? 'light' : 'dark'} />
+    </ThemeProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
     <SafeAreaProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        {!isOnline && (
-          <View style={styles.offlineBanner}>
-            <Text style={styles.offlineText}>オフラインです。接続を確認してください</Text>
-          </View>
-        )}
-        <Stack>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="login" options={{ headerShown: false }} />
-          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        </Stack>
-        <StatusBar style="auto" />
-      </ThemeProvider>
+      <AppThemeProvider>
+        <AppContent />
+      </AppThemeProvider>
     </SafeAreaProvider>
   );
 }

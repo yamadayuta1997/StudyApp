@@ -14,6 +14,8 @@ import {
 } from "react-native";
 import Markdown from "react-native-markdown-display";
 import { applyFilters, PassFailFilter, SortOrder } from "../../utils/historyFilter";
+import { useAppTheme } from "@/contexts/ThemeContext";
+import { AppColors } from "@/constants/theme";
 
 export type HistoryItem = {
   id: string;
@@ -28,6 +30,8 @@ export type HistoryItem = {
 };
 
 function ScoreBadge({ score }: { score: number | null }) {
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
   if (score === null) return null;
   const color = score >= 70 ? "#16a34a" : score >= 50 ? "#d97706" : "#dc2626";
   const bg = score >= 70 ? "#dcfce7" : score >= 50 ? "#fef3c7" : "#fee2e2";
@@ -40,6 +44,9 @@ function ScoreBadge({ score }: { score: number | null }) {
 
 export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
+  const mdStyles = createMarkdownStyles(colors);
   const params = useLocalSearchParams<{ subject?: string }>();
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [selected, setSelected] = useState<HistoryItem | null>(null);
@@ -164,7 +171,7 @@ export default function HistoryScreen() {
             <Text style={styles.sectionText}>{selected?.answer}</Text>
 
             <Text style={styles.sectionLabel}>📊 採点結果</Text>
-            <Markdown style={markdownStyles}>{selected?.result ?? ""}</Markdown>
+            <Markdown style={mdStyles}>{selected?.result ?? ""}</Markdown>
           </ScrollView>
 
           <View style={styles.modalFooter}>
@@ -185,105 +192,99 @@ export default function HistoryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 24, backgroundColor: "#f5f5f5" },
-  title: { fontSize: 24, fontWeight: "bold", marginBottom: 16, textAlign: "center" },
-  filterRow: { marginBottom: 16 },
-  filterChip: {
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#f8fafc",
-    marginRight: 8,
-  },
-  filterChipActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  filterChipText: { color: "#64748b", fontSize: 13, fontWeight: "600" },
-  filterChipTextActive: { color: "#fff" },
-  subFilterRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
-  passFailRow: { flexDirection: "row", gap: 8 },
-  sortButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: "#2563eb",
-    backgroundColor: "#eff6ff",
-  },
-  sortButtonText: { color: "#2563eb", fontSize: 13, fontWeight: "600" },
-  empty: { textAlign: "center", color: "#999", fontSize: 16, marginTop: 40 },
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#ddd",
-  },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
-  cardHeaderRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-  subject: { fontWeight: "bold", color: "#2563eb", fontSize: 14 },
-  date: { color: "#999", fontSize: 12 },
-  scoreBadge: {
-    paddingVertical: 2,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  scoreBadgeText: { fontSize: 12, fontWeight: "bold" },
-  question: { fontSize: 14, color: "#333", marginBottom: 8 },
-  result: { fontSize: 13, color: "#666", marginBottom: 4 },
-  tapHint: { fontSize: 12, color: "#2563eb", textAlign: "right", marginTop: 4 },
-  modalContainer: { flex: 1, backgroundColor: "#f5f5f5" },
-  modalHeader: {
-    backgroundColor: "#2563eb",
-    padding: 24,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-  },
-  modalSubject: { color: "#fff", fontSize: 20, fontWeight: "bold" },
-  modalDate: { color: "#bfdbfe", fontSize: 13 },
-  modalScoreBadge: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
-  },
-  modalScoreText: { color: "#2563eb", fontSize: 20, fontWeight: "bold" },
-  modalScroll: { flex: 1, padding: 20 },
-  sectionLabel: { fontSize: 15, fontWeight: "bold", color: "#2563eb", marginTop: 16, marginBottom: 8 },
-  sectionText: {
-    fontSize: 14,
-    color: "#333",
-    lineHeight: 22,
-    backgroundColor: "#fff",
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-  },
-  modalFooter: {
-    flexDirection: "row",
-    padding: 20,
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
-    backgroundColor: "#fff",
-  },
-  closeButton: { flex: 1, backgroundColor: "#2563eb", padding: 14, borderRadius: 10, alignItems: "center" },
-  closeButtonText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
-  deleteButtonModal: { flex: 1, backgroundColor: "#fee2e2", padding: 14, borderRadius: 10, alignItems: "center" },
-  deleteButtonModalText: { color: "#dc2626", fontWeight: "bold", fontSize: 16 },
-});
+function createStyles(colors: AppColors) {
+  return StyleSheet.create({
+    container: { padding: 24, backgroundColor: colors.screenBg },
+    title: { fontSize: 24, fontWeight: "bold", marginBottom: 16, textAlign: "center", color: colors.textPrimary },
+    filterRow: { marginBottom: 16 },
+    filterChip: {
+      paddingVertical: 6,
+      paddingHorizontal: 14,
+      borderRadius: 20,
+      borderWidth: 1.5,
+      borderColor: colors.inputBorderAlt,
+      backgroundColor: colors.inputBg,
+      marginRight: 8,
+    },
+    filterChipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    filterChipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "600" },
+    filterChipTextActive: { color: colors.textInverse },
+    subFilterRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
+    passFailRow: { flexDirection: "row", gap: 8 },
+    sortButton: {
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: 20,
+      borderWidth: 1.5,
+      borderColor: colors.accent,
+      backgroundColor: colors.accentBg,
+    },
+    sortButtonText: { color: colors.accent, fontSize: 13, fontWeight: "600" },
+    empty: { textAlign: "center", color: colors.textMuted, fontSize: 16, marginTop: 40 },
+    card: {
+      backgroundColor: colors.cardBg,
+      borderRadius: 10,
+      padding: 16,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+    cardHeaderRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+    subject: { fontWeight: "bold", color: colors.accent, fontSize: 14 },
+    date: { color: colors.textMuted, fontSize: 12 },
+    scoreBadge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1 },
+    scoreBadgeText: { fontSize: 12, fontWeight: "bold" },
+    question: { fontSize: 14, color: colors.textPrimary, marginBottom: 8 },
+    result: { fontSize: 13, color: colors.textSecondary, marginBottom: 4 },
+    tapHint: { fontSize: 12, color: colors.accent, textAlign: "right", marginTop: 4 },
+    modalContainer: { flex: 1, backgroundColor: colors.screenBg },
+    modalHeader: {
+      backgroundColor: colors.accent,
+      padding: 24,
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "flex-end",
+    },
+    modalSubject: { color: colors.textInverse, fontSize: 20, fontWeight: "bold" },
+    modalDate: { color: colors.accentBorder, fontSize: 13 },
+    modalScoreBadge: { backgroundColor: colors.cardBg, borderRadius: 12, paddingVertical: 4, paddingHorizontal: 12 },
+    modalScoreText: { color: colors.accent, fontSize: 20, fontWeight: "bold" },
+    modalScroll: { flex: 1, padding: 20 },
+    sectionLabel: { fontSize: 15, fontWeight: "bold", color: colors.accent, marginTop: 16, marginBottom: 8 },
+    sectionText: {
+      fontSize: 14,
+      color: colors.textPrimary,
+      lineHeight: 22,
+      backgroundColor: colors.cardBg,
+      padding: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.divider,
+    },
+    modalFooter: {
+      flexDirection: "row",
+      padding: 20,
+      gap: 12,
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+      backgroundColor: colors.cardBg,
+    },
+    closeButton: { flex: 1, backgroundColor: colors.accent, padding: 14, borderRadius: 10, alignItems: "center" },
+    closeButtonText: { color: colors.textInverse, fontWeight: "bold", fontSize: 16 },
+    deleteButtonModal: { flex: 1, backgroundColor: colors.dangerBg, padding: 14, borderRadius: 10, alignItems: "center" },
+    deleteButtonModalText: { color: colors.dangerText, fontWeight: "bold", fontSize: 16 },
+  });
+}
 
-const markdownStyles = {
-  body: { fontSize: 15, lineHeight: 24, color: "#333" },
-  heading1: { fontSize: 20, fontWeight: "bold" as const, color: "#1e40af", marginVertical: 8 },
-  heading2: { fontSize: 17, fontWeight: "bold" as const, color: "#2563eb", marginVertical: 6 },
-  heading3: { fontSize: 15, fontWeight: "bold" as const, color: "#3b82f6", marginVertical: 4 },
-  strong: { fontWeight: "bold" as const },
-  bullet_list: { marginVertical: 4 },
-  list_item: { marginVertical: 2 },
-};
+function createMarkdownStyles(colors: AppColors) {
+  return {
+    body: { fontSize: 15, lineHeight: 24, color: colors.textPrimary },
+    heading1: { fontSize: 20, fontWeight: "bold" as const, color: colors.textAccent, marginVertical: 8 },
+    heading2: { fontSize: 17, fontWeight: "bold" as const, color: colors.accent, marginVertical: 6 },
+    heading3: { fontSize: 15, fontWeight: "bold" as const, color: colors.accent, marginVertical: 4 },
+    strong: { fontWeight: "bold" as const },
+    bullet_list: { marginVertical: 4 },
+    list_item: { marginVertical: 2 },
+  };
+}

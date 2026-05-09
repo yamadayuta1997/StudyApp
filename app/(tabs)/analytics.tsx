@@ -16,6 +16,8 @@ import {
 } from "react-native";
 import Markdown from "react-native-markdown-display";
 import { HistoryItem } from "./explore";
+import { useAppTheme } from "@/contexts/ThemeContext";
+import { AppColors } from "@/constants/theme";
 
 const API_BASE_URL = "https://studyapp-production-66d5.up.railway.app";
 
@@ -30,6 +32,8 @@ type SubjectStats = {
 };
 
 function ScoreBar({ score }: { score: number | null }) {
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
   if (score === null) return (
     <View style={styles.barContainer}>
       <Text style={styles.noDataText}>データなし</Text>
@@ -57,6 +61,9 @@ export default function AnalyticsScreen() {
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
   const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
+  const mdStyles = createMarkdownStyles(colors);
   const [stats, setStats] = useState<SubjectStats[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [studyTip, setStudyTip] = useState("");
@@ -253,11 +260,11 @@ export default function AnalyticsScreen() {
           <View style={styles.tipDivider} />
           {tipLoading ? (
             <View style={styles.tipLoadingRow}>
-              <ActivityIndicator size="small" color="#2563eb" />
+              <ActivityIndicator size="small" color={colors.accent} />
               <Text style={styles.tipLoadingText}>AIがアドバイスを生成中...</Text>
             </View>
           ) : (
-            <Markdown style={markdownStyles}>{studyTip}</Markdown>
+            <Markdown style={mdStyles}>{studyTip}</Markdown>
           )}
         </View>
       )}
@@ -276,139 +283,121 @@ export default function AnalyticsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { padding: 20, backgroundColor: "#f1f5f9" },
-  title: { fontSize: 24, fontWeight: "bold", textAlign: "center", marginBottom: 20, color: "#1e293b" },
-  summaryRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
-  summaryCard: {
-    flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 16,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  summaryValue: { fontSize: 28, fontWeight: "bold", color: "#2563eb" },
-  summaryLabel: { fontSize: 12, color: "#64748b", marginTop: 4 },
-  section: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  sectionTitle: { fontSize: 15, fontWeight: "bold", color: "#1e40af", marginBottom: 16 },
-  subjectGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
-  subjectRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 14,
-    gap: 8,
-  },
-  subjectRowTablet: {
-    width: "48%",
-    marginBottom: 14,
-  },
-  subjectInfo: { width: 80 },
-  subjectNameRow: { flexDirection: "row", alignItems: "center", gap: 4 },
-  subjectName: { fontSize: 12, fontWeight: "bold", color: "#1e293b", flexShrink: 1 },
-  subjectCount: { fontSize: 10, color: "#94a3b8", marginTop: 2 },
-  subjectBar: { flex: 1 },
-  barContainer: { flexDirection: "row", alignItems: "center", gap: 8 },
-  barTrack: {
-    flex: 1,
-    height: 10,
-    backgroundColor: "#e2e8f0",
-    borderRadius: 5,
-    overflow: "hidden",
-  },
-  barFill: { height: 10, borderRadius: 5 },
-  barScore: { fontSize: 12, fontWeight: "bold", width: 36, textAlign: "right" },
-  noDataText: { fontSize: 11, color: "#94a3b8" },
-  tipButton: {
-    backgroundColor: "#eff6ff",
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#bfdbfe",
-  },
-  tipButtonText: { color: "#2563eb", fontSize: 11, fontWeight: "600" },
-  tipCard: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#bfdbfe",
-    borderLeftWidth: 4,
-    borderLeftColor: "#2563eb",
-  },
-  tipTitle: { fontSize: 16, fontWeight: "bold", color: "#1e40af", marginBottom: 8 },
-  tipDivider: { height: 1, backgroundColor: "#e2e8f0", marginBottom: 12 },
-  tipLoadingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  tipLoadingText: { color: "#64748b", fontSize: 14 },
-  untriedCard: {
-    backgroundColor: "#fefce8",
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#fde68a",
-  },
-  untriedTitle: { fontSize: 14, fontWeight: "bold", color: "#92400e", marginBottom: 8 },
-  untriedText: { fontSize: 14, color: "#78350f", lineHeight: 22 },
-  wrongTopicRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 },
-  wrongTopicRank: { fontSize: 13, fontWeight: "bold", color: "#dc2626", width: 28 },
-  wrongTopicName: { flex: 1, fontSize: 14, color: "#1e293b", fontWeight: "600" },
-  wrongTopicBadge: {
-    backgroundColor: "#fee2e2",
-    paddingVertical: 3,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#fca5a5",
-  },
-  wrongTopicBadgeText: { color: "#dc2626", fontSize: 12, fontWeight: "bold" },
-  cautionRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 },
-  cautionInfo: { flex: 1 },
-  cautionTopic: { fontSize: 14, fontWeight: "600", color: "#1e293b" },
-  cautionSubject: { fontSize: 11, color: "#64748b", marginTop: 2 },
-  cautionBadge: {
-    backgroundColor: "#fef3c7",
-    paddingVertical: 3,
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#fcd34d",
-  },
-  cautionBadgeText: { color: "#92400e", fontSize: 12, fontWeight: "bold" },
-  emptyContainer: {
-    alignItems: "center",
-    paddingVertical: 60,
-    gap: 20,
-  },
-  emptyText: { fontSize: 18, fontWeight: "bold", color: "#64748b" },
-  emptyButton: {
-    backgroundColor: "#2563eb",
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    borderRadius: 12,
-  },
-  emptyButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
-});
+function createStyles(colors: AppColors) {
+  return StyleSheet.create({
+    container: { padding: 20, backgroundColor: colors.screenBg },
+    title: { fontSize: 24, fontWeight: "bold", textAlign: "center", marginBottom: 20, color: colors.textPrimary },
+    summaryRow: { flexDirection: "row", gap: 12, marginBottom: 20 },
+    summaryCard: {
+      flex: 1,
+      backgroundColor: colors.cardBg,
+      borderRadius: 12,
+      padding: 16,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    summaryValue: { fontSize: 28, fontWeight: "bold", color: colors.accent },
+    summaryLabel: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
+    section: {
+      backgroundColor: colors.cardBg,
+      borderRadius: 14,
+      padding: 16,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    sectionTitle: { fontSize: 15, fontWeight: "bold", color: colors.textAccent, marginBottom: 16 },
+    subjectGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    subjectRow: { flexDirection: "row", alignItems: "center", marginBottom: 14, gap: 8 },
+    subjectRowTablet: { width: "48%", marginBottom: 14 },
+    subjectInfo: { width: 80 },
+    subjectNameRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+    subjectName: { fontSize: 12, fontWeight: "bold", color: colors.textPrimary, flexShrink: 1 },
+    subjectCount: { fontSize: 10, color: colors.textMuted, marginTop: 2 },
+    subjectBar: { flex: 1 },
+    barContainer: { flexDirection: "row", alignItems: "center", gap: 8 },
+    barTrack: { flex: 1, height: 10, backgroundColor: colors.cardBorder, borderRadius: 5, overflow: "hidden" },
+    barFill: { height: 10, borderRadius: 5 },
+    barScore: { fontSize: 12, fontWeight: "bold", width: 36, textAlign: "right" },
+    noDataText: { fontSize: 11, color: colors.textMuted },
+    tipButton: {
+      backgroundColor: colors.accentBg,
+      paddingVertical: 6,
+      paddingHorizontal: 8,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.accentBorder,
+    },
+    tipButtonText: { color: colors.accent, fontSize: 11, fontWeight: "600" },
+    tipCard: {
+      backgroundColor: colors.cardBg,
+      borderRadius: 14,
+      padding: 20,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: colors.accentBorder,
+      borderLeftWidth: 4,
+      borderLeftColor: colors.accent,
+    },
+    tipTitle: { fontSize: 16, fontWeight: "bold", color: colors.textAccent, marginBottom: 8 },
+    tipDivider: { height: 1, backgroundColor: colors.cardBorder, marginBottom: 12 },
+    tipLoadingRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+    tipLoadingText: { color: colors.textSecondary, fontSize: 14 },
+    untriedCard: {
+      backgroundColor: colors.warningBgAlt,
+      borderRadius: 12,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: colors.warningBorderAlt,
+    },
+    untriedTitle: { fontSize: 14, fontWeight: "bold", color: colors.warningDark, marginBottom: 8 },
+    untriedText: { fontSize: 14, color: colors.amberTextDark, lineHeight: 22 },
+    wrongTopicRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 },
+    wrongTopicRank: { fontSize: 13, fontWeight: "bold", color: colors.dangerText, width: 28 },
+    wrongTopicName: { flex: 1, fontSize: 14, color: colors.textPrimary, fontWeight: "600" },
+    wrongTopicBadge: {
+      backgroundColor: colors.dangerBg,
+      paddingVertical: 3,
+      paddingHorizontal: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.dangerBorder,
+    },
+    wrongTopicBadgeText: { color: colors.dangerText, fontSize: 12, fontWeight: "bold" },
+    cautionRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 8 },
+    cautionInfo: { flex: 1 },
+    cautionTopic: { fontSize: 14, fontWeight: "600", color: colors.textPrimary },
+    cautionSubject: { fontSize: 11, color: colors.textSecondary, marginTop: 2 },
+    cautionBadge: {
+      backgroundColor: colors.warningBg,
+      paddingVertical: 3,
+      paddingHorizontal: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: colors.warningBorder,
+    },
+    cautionBadgeText: { color: colors.warningDark, fontSize: 12, fontWeight: "bold" },
+    emptyContainer: { alignItems: "center", paddingVertical: 60, gap: 20 },
+    emptyText: { fontSize: 18, fontWeight: "bold", color: colors.textSecondary },
+    emptyButton: {
+      backgroundColor: colors.accent,
+      paddingVertical: 14,
+      paddingHorizontal: 32,
+      borderRadius: 12,
+    },
+    emptyButtonText: { color: colors.textInverse, fontSize: 16, fontWeight: "bold" },
+  });
+}
 
-const markdownStyles = {
-  body: { fontSize: 14, lineHeight: 22, color: "#334155" },
-  heading1: { fontSize: 18, fontWeight: "bold" as const, color: "#1e40af", marginVertical: 8 },
-  heading2: { fontSize: 15, fontWeight: "bold" as const, color: "#2563eb", marginVertical: 6 },
-  heading3: { fontSize: 14, fontWeight: "bold" as const, color: "#3b82f6", marginVertical: 4 },
-  strong: { fontWeight: "bold" as const },
-  bullet_list: { marginVertical: 4 },
-  list_item: { marginVertical: 2 },
-};
+function createMarkdownStyles(colors: AppColors) {
+  return {
+    body: { fontSize: 14, lineHeight: 22, color: colors.textSecondary },
+    heading1: { fontSize: 18, fontWeight: "bold" as const, color: colors.textAccent, marginVertical: 8 },
+    heading2: { fontSize: 15, fontWeight: "bold" as const, color: colors.accent, marginVertical: 6 },
+    heading3: { fontSize: 14, fontWeight: "bold" as const, color: colors.accent, marginVertical: 4 },
+    strong: { fontWeight: "bold" as const },
+    bullet_list: { marginVertical: 4 },
+    list_item: { marginVertical: 2 },
+  };
+}

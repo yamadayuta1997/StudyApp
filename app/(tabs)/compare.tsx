@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
+import { useAppTheme } from '@/contexts/ThemeContext';
+import { AppColors } from '@/constants/theme';
 import { apiClient } from '@/utils/apiClient';
 import { buildCompareShareText } from '@/utils/shareResult';
 import { moveItem } from '@/utils/imageReorder';
@@ -70,6 +72,8 @@ const MAX_HISTORY = 20;
 const MAX_IMAGES = 10;
 
 export default function CompareScreen() {
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
   const [answerUris, setAnswerUris] = useState<string[]>([]);
   const [answerB64s, setAnswerB64s] = useState<string[]>([]);
   const [modelUris, setModelUris] = useState<string[]>([]);
@@ -835,48 +839,25 @@ const [usageCount, setUsageCount] = useState(0);
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F2F2F7' },
+function createStyles(colors: AppColors) { return StyleSheet.create({
+  safe: { flex: 1, backgroundColor: colors.iosBg },
   container: { padding: 16, paddingBottom: 40 },
-  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 20, color: '#1C1C1E' },
+  title: { fontSize: 22, fontWeight: 'bold', marginBottom: 20, color: colors.iosTextPrimary },
   labelRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 8 },
-  label: { fontSize: 15, fontWeight: '600', color: '#3A3A3C' },
-  imageCountBadge: { marginLeft: 8, fontSize: 12, fontWeight: '700', color: '#007AFF', backgroundColor: '#EFF6FF', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
+  label: { fontSize: 15, fontWeight: '600', color: colors.iosTextSecondary },
+  imageCountBadge: { marginLeft: 8, fontSize: 12, fontWeight: '700', color: colors.iosAccent, backgroundColor: colors.accentBg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 },
   row: { flexDirection: 'row', gap: 10 },
-  btn: { flex: 1, backgroundColor: '#fff', borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: '#E5E5EA' },
-  btnText: { fontSize: 14, color: '#007AFF' },
+  btn: { flex: 1, backgroundColor: colors.cardBg, borderRadius: 10, padding: 12, alignItems: 'center', borderWidth: 1, borderColor: colors.iosBorder },
+  btnText: { fontSize: 14, color: colors.iosAccent },
 
   /* 答案画像コンテナ（オーバーレイ用） */
-  imageContainer: {
-    width: '100%',
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginTop: 8,
-    backgroundColor: '#1C1C1E',
-    minHeight: 180,
-  },
+  imageContainer: { width: '100%', borderRadius: 12, overflow: 'hidden', marginTop: 8, backgroundColor: colors.iosTextPrimary, minHeight: 180 },
   fullImage: { width: '100%', height: 220 },
-  pageIndexBadge: {
-    position: 'absolute', top: 8, left: 8,
-    backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 10,
-    paddingHorizontal: 8, paddingVertical: 3,
-  },
+  pageIndexBadge: { position: 'absolute', top: 8, left: 8, backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
   pageIndexText: { color: '#fff', fontSize: 11, fontWeight: '700' },
-  removeImageBtn: {
-    position: 'absolute', top: 8, right: 8,
-    backgroundColor: 'rgba(255,59,48,0.85)', borderRadius: 12,
-    width: 24, height: 24, alignItems: 'center', justifyContent: 'center',
-  },
+  removeImageBtn: { position: 'absolute', top: 8, right: 8, backgroundColor: 'rgba(255,59,48,0.85)', borderRadius: 12, width: 24, height: 24, alignItems: 'center', justifyContent: 'center' },
   removeImageText: { color: '#fff', fontSize: 13, fontWeight: '700', lineHeight: 16 },
-  feedbackOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(10, 12, 20, 0.84)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
+  feedbackOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: colors.overlayDark, paddingHorizontal: 12, paddingVertical: 10 },
   overlayHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8, gap: 8 },
   overlayTitle: { fontSize: 12, fontWeight: '700', color: '#fff' },
   overlayBadge: { backgroundColor: '#FF3B30', borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2 },
@@ -884,247 +865,140 @@ const styles = StyleSheet.create({
   overlayRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 6 },
   overlayDot: { width: 8, height: 8, borderRadius: 4, marginTop: 4, flexShrink: 0 },
   overlayTextWrap: { flex: 1 },
-  overlayType: { fontSize: 11, fontWeight: '700', color: '#E5E5EA', marginBottom: 1 },
-  overlayPoint: { fontSize: 11, color: '#C7C7CC', lineHeight: 15 },
-
-  /* 模範解答プレビュー（オーバーレイなし） */
-  preview: { width: '100%', height: 180, borderRadius: 10, marginTop: 8, backgroundColor: '#E5E5EA' },
-
-  placeholder: {
-    width: '100%', height: 100, borderRadius: 10, marginTop: 8,
-    backgroundColor: '#E5E5EA', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: '#D1D1D6',
-  },
-  placeholderText: { color: '#8E8E93', fontSize: 13 },
-
-  analyzeBtn: { backgroundColor: '#007AFF', borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24 },
+  overlayType: { fontSize: 11, fontWeight: '700', color: colors.iosBorder, marginBottom: 1 },
+  overlayPoint: { fontSize: 11, color: colors.iosTextSubtle, lineHeight: 15 },
+  preview: { width: '100%', height: 180, borderRadius: 10, marginTop: 8, backgroundColor: colors.iosBorder },
+  placeholder: { width: '100%', height: 100, borderRadius: 10, marginTop: 8, backgroundColor: colors.iosBorder, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.iosBorderLight },
+  placeholderText: { color: colors.iosTextMuted, fontSize: 13 },
+  analyzeBtn: { backgroundColor: colors.iosAccent, borderRadius: 12, padding: 16, alignItems: 'center', marginTop: 24 },
   analyzeBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   disabled: { opacity: 0.4 },
   loadingBox: { alignItems: 'center', marginTop: 30, gap: 12 },
-  loadingText: { color: '#8E8E93', fontSize: 14 },
-
+  loadingText: { color: colors.iosTextMuted, fontSize: 14 },
   resultBox: { marginTop: 24 },
   scoreRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 8 },
-  scoreNum: { fontSize: 40, fontWeight: 'bold', color: '#1C1C1E' },
+  scoreNum: { fontSize: 40, fontWeight: 'bold', color: colors.iosTextPrimary },
   badge: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 4 },
-  pass: { backgroundColor: '#D1F5D3' },
-  fail: { backgroundColor: '#FFD6D6' },
+  pass: { backgroundColor: colors.successBg },
+  fail: { backgroundColor: colors.dangerBg },
   badgeText: { fontSize: 13, fontWeight: '600' },
   fatal: { color: '#FF3B30', fontSize: 14, marginBottom: 4 },
   warn: { color: '#FF9500', fontSize: 13, marginBottom: 8 },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#1C1C1E', marginTop: 20, marginBottom: 10 },
-  textbookBox: { backgroundColor: '#EEF4FF', borderRadius: 10, padding: 14 },
-  textbookRef: { fontSize: 13, color: '#3A3A3C', lineHeight: 18, fontStyle: 'italic' },
-  stepRow: {
-    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-    backgroundColor: '#fff', borderRadius: 8, padding: 10, marginBottom: 6,
-  },
-  stepLabel: { fontSize: 11, color: '#8E8E93', width: 60 },
-  stepAnswer: { flex: 1, fontSize: 12, color: '#1C1C1E' },
+  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: colors.iosTextPrimary, marginTop: 20, marginBottom: 10 },
+  textbookBox: { backgroundColor: colors.infoBgAlt, borderRadius: 10, padding: 14 },
+  textbookRef: { fontSize: 13, color: colors.iosTextSecondary, lineHeight: 18, fontStyle: 'italic' },
+  stepRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: colors.cardBg, borderRadius: 8, padding: 10, marginBottom: 6 },
+  stepLabel: { fontSize: 11, color: colors.iosTextMuted, width: 60 },
+  stepAnswer: { flex: 1, fontSize: 12, color: colors.iosTextPrimary },
   stepMark: { fontSize: 16, fontWeight: 'bold' },
-
-  /* 思考ステップ差分 */
-  diffCard: {
-    backgroundColor: '#fff', borderRadius: 12, marginBottom: 10,
-    overflow: 'hidden', borderWidth: 1, borderColor: '#E5E7EB',
-  },
-  diffLabelRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#F9FAFB',
-    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
-  },
-  diffStepLabel: { fontSize: 13, fontWeight: '700', color: '#374151' },
+  diffCard: { backgroundColor: colors.cardBg, borderRadius: 12, marginBottom: 10, overflow: 'hidden', borderWidth: 1, borderColor: colors.divider },
+  diffLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: colors.statCardBg, borderBottomWidth: 1, borderBottomColor: colors.divider },
+  diffStepLabel: { fontSize: 13, fontWeight: '700', color: colors.textPrimary },
   diffBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
   diffBadgeText: { fontSize: 11, fontWeight: '700' },
   diffRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, padding: 10 },
-  diffModelRow: { backgroundColor: '#F0FFF4' },
-  diffSideLabel: {
-    fontSize: 10, fontWeight: '700', color: '#6B7280',
-    width: 28, paddingTop: 2, flexShrink: 0,
-  },
-  diffText: { flex: 1, fontSize: 13, color: '#1C1C1E', lineHeight: 18 },
-  diffDivider: { height: 1, backgroundColor: '#E5E7EB' },
-
-  /* フィードバック詳細モーダル */
-  modalBackdrop: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.55)',
-    justifyContent: 'center', alignItems: 'center', padding: 24,
-  },
-  modalCard: {
-    width: '100%', backgroundColor: '#fff', borderRadius: 18,
-    padding: 20, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, elevation: 8,
-  },
+  diffModelRow: { backgroundColor: colors.successBg },
+  diffSideLabel: { fontSize: 10, fontWeight: '700', color: colors.textSecondary, width: 28, paddingTop: 2, flexShrink: 0 },
+  diffText: { flex: 1, fontSize: 13, color: colors.iosTextPrimary, lineHeight: 18 },
+  diffDivider: { height: 1, backgroundColor: colors.divider },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  modalCard: { width: '100%', backgroundColor: colors.cardBg, borderRadius: 18, padding: 20, shadowColor: '#000', shadowOpacity: 0.25, shadowRadius: 12, elevation: 8 },
   modalHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 14, gap: 10 },
   modalColorBar: { width: 4, height: 28, borderRadius: 2 },
   modalTitleWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
   modalTypeIcon: { fontSize: 20 },
-  modalTypeName: { fontSize: 17, fontWeight: '700', color: '#1C1C1E' },
+  modalTypeName: { fontSize: 17, fontWeight: '700', color: colors.iosTextPrimary },
   modalCloseBtn: { padding: 4 },
-  modalCloseText: { fontSize: 18, color: '#8E8E93', fontWeight: '600' },
+  modalCloseText: { fontSize: 18, color: colors.iosTextMuted, fontWeight: '600' },
   modalPriorityRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 16 },
-  modalPriorityLabel: { fontSize: 12, color: '#8E8E93', marginRight: 4 },
+  modalPriorityLabel: { fontSize: 12, color: colors.iosTextMuted, marginRight: 4 },
   modalPriorityDot: { width: 10, height: 10, borderRadius: 5 },
-  modalPointLabel: { fontSize: 12, fontWeight: '600', color: '#8E8E93', marginBottom: 8 },
-  modalPointText: { fontSize: 15, color: '#1C1C1E', lineHeight: 22, marginBottom: 20 },
+  modalPointLabel: { fontSize: 12, fontWeight: '600', color: colors.iosTextMuted, marginBottom: 8 },
+  modalPointText: { fontSize: 15, color: colors.iosTextPrimary, lineHeight: 22, marginBottom: 20 },
   modalOkBtn: { borderRadius: 12, padding: 14, alignItems: 'center' },
   modalOkText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  overlayChevron: { color: '#8E8E93', fontSize: 16, fontWeight: '600', alignSelf: 'center' },
-
-  /* 品質評価ポーリング */
+  overlayChevron: { color: colors.iosTextMuted, fontSize: 16, fontWeight: '600', alignSelf: 'center' },
   evalPendingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  evalPendingText: { fontSize: 12, color: '#6B7280' },
-
-  /* 評価ループ */
+  evalPendingText: { fontSize: 12, color: colors.textSecondary },
   evalBadge: { borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 12, alignItems: 'center' },
   evalBadgeText: { fontSize: 13, fontWeight: '600' },
-  improvementsCard: {
-    backgroundColor: '#FEF2F2', borderRadius: 12, padding: 14, marginBottom: 14,
-    borderWidth: 1, borderColor: '#FECACA',
-  },
-  improvementsTitle: { fontSize: 13, fontWeight: '700', color: '#991B1B', marginBottom: 8 },
-  improvementItem: { fontSize: 13, color: '#7F1D1D', lineHeight: 20, marginBottom: 4 },
-  retryBtn: {
-    backgroundColor: '#DC2626', borderRadius: 10, padding: 12,
-    alignItems: 'center', marginTop: 10,
-  },
+  improvementsCard: { backgroundColor: colors.dangerBgAlt, borderRadius: 12, padding: 14, marginBottom: 14, borderWidth: 1, borderColor: colors.dangerBorderAlt },
+  improvementsTitle: { fontSize: 13, fontWeight: '700', color: colors.dangerText, marginBottom: 8 },
+  improvementItem: { fontSize: 13, color: colors.dangerText, lineHeight: 20, marginBottom: 4 },
+  retryBtn: { backgroundColor: '#DC2626', borderRadius: 10, padding: 12, alignItems: 'center', marginTop: 10 },
   retryBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
-
-  /* 制限 */
-  limitBox: {
-    backgroundColor: '#FEF2F2', borderRadius: 12, padding: 16, marginTop: 24,
-    borderWidth: 1, borderColor: '#FECACA', alignItems: 'center',
-  },
-  limitTitle: { fontSize: 15, fontWeight: '700', color: '#991B1B', marginBottom: 4 },
-  limitSub: { fontSize: 12, color: '#B91C1C', textAlign: 'center' },
-  usageText: { textAlign: 'center', fontSize: 12, color: '#6B7280', marginTop: 8 },
-  devBadge: { textAlign: 'center', fontSize: 11, color: '#059669', marginTop: 6, fontWeight: '600' },
-
-  /* ステップインジケーター */
+  limitBox: { backgroundColor: colors.dangerBgAlt, borderRadius: 12, padding: 16, marginTop: 24, borderWidth: 1, borderColor: colors.dangerBorderAlt, alignItems: 'center' },
+  limitTitle: { fontSize: 15, fontWeight: '700', color: colors.dangerText, marginBottom: 4 },
+  limitSub: { fontSize: 12, color: colors.dangerText, textAlign: 'center' },
+  usageText: { textAlign: 'center', fontSize: 12, color: colors.textSecondary, marginTop: 8 },
+  devBadge: { textAlign: 'center', fontSize: 11, color: colors.successText, marginTop: 6, fontWeight: '600' },
   stepBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   stepItem: { alignItems: 'center', gap: 4 },
   stepDot: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   stepDotDone: { backgroundColor: '#34C759' },
-  stepDotActive: { backgroundColor: '#007AFF' },
-  stepDotPending: { backgroundColor: '#E5E5EA' },
+  stepDotActive: { backgroundColor: colors.iosAccent },
+  stepDotPending: { backgroundColor: colors.iosBorder },
   stepDotText: { fontSize: 13, fontWeight: '700' },
   stepDotTextActive: { color: '#fff' },
-  stepDotTextPending: { color: '#8E8E93' },
+  stepDotTextPending: { color: colors.iosTextMuted },
   stepLine: { flex: 1, height: 2, marginHorizontal: 4, marginBottom: 14 },
   stepLineDone: { backgroundColor: '#34C759' },
-  stepLinePending: { backgroundColor: '#E5E5EA' },
+  stepLinePending: { backgroundColor: colors.iosBorder },
   stepLabel2: { fontSize: 10, fontWeight: '600' },
-  stepLabelActive: { color: '#007AFF' },
-  stepLabelMuted: { color: '#8E8E93' },
-
-  /* 次の行動バナー */
+  stepLabelActive: { color: colors.iosAccent },
+  stepLabelMuted: { color: colors.iosTextMuted },
   hintBanner: { borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 16, alignItems: 'center' },
-  hintBannerHighlight: { backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE' },
-  hintBannerNeutral: { backgroundColor: '#F2F2F7' },
+  hintBannerHighlight: { backgroundColor: colors.accentBg, borderWidth: 1, borderColor: colors.accentBorder },
+  hintBannerNeutral: { backgroundColor: colors.iosBg },
   hintText: { fontSize: 14, fontWeight: '600' },
-  hintTextHighlight: { color: '#1D4ED8' },
-  hintTextNeutral: { color: '#6B7280' },
-
-  /* セカンダリ / プライマリ 画像ボタン */
-  btnSecondary: {
-    flex: 1, borderRadius: 10, padding: 11, alignItems: 'center',
-    borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#fff',
-  },
-  btnSecondaryText: { fontSize: 13, color: '#6B7280' },
-  btnPrimary: { borderColor: '#007AFF', backgroundColor: '#EFF6FF' },
-  btnPrimaryText: { color: '#007AFF', fontWeight: '600' },
-
-  /* 分析ボタン */
+  hintTextHighlight: { color: colors.accentDark },
+  hintTextNeutral: { color: colors.iosTextMuted },
+  btnSecondary: { flex: 1, borderRadius: 10, padding: 11, alignItems: 'center', borderWidth: 1, borderColor: colors.cardBorder, backgroundColor: colors.cardBg },
+  btnSecondaryText: { fontSize: 13, color: colors.textSecondary },
+  btnPrimary: { borderColor: colors.iosAccent, backgroundColor: colors.accentBg },
+  btnPrimaryText: { color: colors.iosAccent, fontWeight: '600' },
   analyzeBtnInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   analyzeBtnDim: { opacity: 0.45 },
-
-  /* 保存ボタン */
-  saveBtn: {
-    backgroundColor: '#007AFF', borderRadius: 12, padding: 14,
-    alignItems: 'center', marginTop: 20,
-  },
+  saveBtn: { backgroundColor: colors.iosAccent, borderRadius: 12, padding: 14, alignItems: 'center', marginTop: 20 },
   saveBtnDone: { backgroundColor: '#34C759' },
   saveBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  saveSub: { textAlign: 'center', fontSize: 12, color: '#6B7280', marginTop: 6 },
-  savedDateText: { textAlign: 'center', fontSize: 12, color: '#8E8E93', marginTop: 6 },
-
-  /* AIヒント蓄積状態行 */
-  promptTipsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#F0FDF4',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
-  },
-  promptTipsText: { fontSize: 13, color: '#166534', fontWeight: '600', flex: 1 },
-  promptTipsResetBtn: {
-    backgroundColor: '#DC2626',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    marginLeft: 8,
-  },
+  saveSub: { textAlign: 'center', fontSize: 12, color: colors.textSecondary, marginTop: 6 },
+  savedDateText: { textAlign: 'center', fontSize: 12, color: colors.iosTextMuted, marginTop: 6 },
+  promptTipsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: colors.successBg, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12, borderWidth: 1, borderColor: colors.successBorder },
+  promptTipsText: { fontSize: 13, color: colors.successDark, fontWeight: '600', flex: 1 },
+  promptTipsResetBtn: { backgroundColor: '#DC2626', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginLeft: 8 },
   promptTipsResetText: { fontSize: 12, color: '#fff', fontWeight: '700' },
-
-  /* 赤ペンオーバーレイ FAB */
-  fab: {
-    position: 'absolute',
-    right: 16,
-    bottom: 24,
-    backgroundColor: '#007AFF',
-    borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
-  },
-  fabText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-
-  /* 並び替えボタン */
+  fab: { position: 'absolute', right: 16, bottom: 24, backgroundColor: colors.iosAccent, borderRadius: 24, paddingHorizontal: 16, paddingVertical: 10, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4, elevation: 5 },
+  fabText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   reorderBtns: { position: 'absolute', top: 8, left: 8, flexDirection: 'column', gap: 4 },
   reorderBtn: { backgroundColor: 'rgba(0,122,255,0.85)', width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   reorderBtnDisabled: { backgroundColor: 'rgba(0,0,0,0.25)' },
   reorderBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' as const, lineHeight: 14 },
-
-  /* 科目選択モーダル */
   subjectModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end', padding: 16 },
-  subjectModalCard: { backgroundColor: '#fff', borderRadius: 20, padding: 24 },
-  subjectModalTitle: { fontSize: 17, fontWeight: 'bold', color: '#1C1C1E', marginBottom: 16, textAlign: 'center' },
+  subjectModalCard: { backgroundColor: colors.cardBg, borderRadius: 20, padding: 24 },
+  subjectModalTitle: { fontSize: 17, fontWeight: 'bold', color: colors.iosTextPrimary, marginBottom: 16, textAlign: 'center' },
   subjectGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-  subjectBtn: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderColor: '#D1D5DB', backgroundColor: '#F9FAFB' },
-  subjectBtnActive: { backgroundColor: '#007AFF', borderColor: '#007AFF' },
-  subjectBtnText: { color: '#6B7280', fontSize: 13, fontWeight: '600' },
+  subjectBtn: { paddingVertical: 9, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1.5, borderColor: colors.cardBorder, backgroundColor: colors.statCardBg },
+  subjectBtnActive: { backgroundColor: colors.iosAccent, borderColor: colors.iosAccent },
+  subjectBtnText: { color: colors.textSecondary, fontSize: 13, fontWeight: '600' },
   subjectBtnTextActive: { color: '#fff' },
   subjectModalActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
-  subjectCancelBtn: { flex: 1, backgroundColor: '#F2F2F7', borderRadius: 12, padding: 14, alignItems: 'center' },
-  subjectCancelText: { color: '#6B7280', fontSize: 15, fontWeight: '600' },
-  subjectConfirmBtn: { flex: 2, backgroundColor: '#007AFF', borderRadius: 12, padding: 14, alignItems: 'center' },
+  subjectCancelBtn: { flex: 1, backgroundColor: colors.iosBg, borderRadius: 12, padding: 14, alignItems: 'center' },
+  subjectCancelText: { color: colors.textSecondary, fontSize: 15, fontWeight: '600' },
+  subjectConfirmBtn: { flex: 2, backgroundColor: colors.iosAccent, borderRadius: 12, padding: 14, alignItems: 'center' },
   subjectConfirmText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
-
-  /* ローディングステップインジケーター */
   loadingStepBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 12, paddingHorizontal: 8 },
   loadingStepItem: { alignItems: 'center', gap: 4 },
   loadingStepDot: { width: 10, height: 10, borderRadius: 5 },
   loadingStepDone: { backgroundColor: '#34C759' },
-  loadingStepActive: { backgroundColor: '#007AFF' },
-  loadingStepPending: { backgroundColor: '#D1D5DB' },
+  loadingStepActive: { backgroundColor: colors.iosAccent },
+  loadingStepPending: { backgroundColor: colors.cardBorder },
   loadingStepLabel: { fontSize: 9, fontWeight: '600' as const },
-  loadingStepLabelActive: { color: '#007AFF' },
-  loadingStepLabelMuted: { color: '#9CA3AF' },
+  loadingStepLabelActive: { color: colors.iosAccent },
+  loadingStepLabelMuted: { color: colors.textMuted },
   loadingStepLine: { flex: 1, height: 2, marginHorizontal: 2, marginBottom: 14 },
   loadingStepLineDone: { backgroundColor: '#34C759' },
-  loadingStepLinePending: { backgroundColor: '#E5E7EB' },
-  shareBtn: { marginLeft: 'auto', backgroundColor: '#F0FDF4', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#BBF7D0' },
-  shareBtnText: { color: '#166534', fontSize: 13, fontWeight: '600' as const },
-});
+  loadingStepLinePending: { backgroundColor: colors.divider },
+  shareBtn: { marginLeft: 'auto', backgroundColor: colors.successBg, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.successBorder },
+  shareBtnText: { color: colors.successDark, fontSize: 13, fontWeight: '600' as const },
+});}

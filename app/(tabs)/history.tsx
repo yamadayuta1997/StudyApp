@@ -14,6 +14,8 @@ import {
   View,
 } from 'react-native';
 import { computeAverageScore, computeGraphPoints, getLastNScores } from '../../utils/scoreGraph';
+import { useAppTheme } from '@/contexts/ThemeContext';
+import { AppColors } from '@/constants/theme';
 
 type Feedback = { priority: number; type: string; point: string; color: string };
 type Steps = { issueRecognition: string; premise: string; logic: string; conclusion: string };
@@ -53,33 +55,34 @@ const GRAPH_PADDING = { left: 32, right: 16, top: 10, bottom: 8 };
 const GRAPH_HEIGHT = 90;
 
 function ScoreTrendGraph({ items }: { items: CompareHistoryItem[] }) {
+  const { colors } = useAppTheme();
   const graphItems = getLastNScores(items, 10);
   const chartWidth = SCREEN_WIDTH - 32 - GRAPH_PADDING.left - GRAPH_PADDING.right;
   const chartHeight = GRAPH_HEIGHT - GRAPH_PADDING.top - GRAPH_PADDING.bottom;
   const points = computeGraphPoints(graphItems, chartWidth, chartHeight, GRAPH_PADDING.left, GRAPH_PADDING.top);
 
+  const gStyles = getGraphStyles(colors);
+
   if (graphItems.length < 2) {
     return (
-      <View style={styles.graphEmpty}>
-        <Text style={styles.graphEmptyText}>グラフは2件以上の履歴で表示されます</Text>
+      <View style={gStyles.graphEmpty}>
+        <Text style={gStyles.graphEmptyText}>グラフは2件以上の履歴で表示されます</Text>
       </View>
     );
   }
 
   return (
-    <View style={[styles.graphContainer, { height: GRAPH_HEIGHT }]}>
-      {/* y軸ガイドライン */}
+    <View style={[gStyles.graphContainer, { height: GRAPH_HEIGHT }]}>
       {[0, 50, 100].map((val) => {
         const y = GRAPH_PADDING.top + chartHeight - (val / 100) * chartHeight;
         return (
           <View key={val} style={{ position: 'absolute', left: 0, top: y, flexDirection: 'row', alignItems: 'center' }}>
-            <Text style={styles.graphYLabel}>{val}</Text>
-            <View style={[styles.graphGuideLine, { width: chartWidth + GRAPH_PADDING.right }]} />
+            <Text style={gStyles.graphYLabel}>{val}</Text>
+            <View style={[gStyles.graphGuideLine, { width: chartWidth + GRAPH_PADDING.right }]} />
           </View>
         );
       })}
 
-      {/* 折れ線セグメント */}
       {points.slice(0, -1).map((p, i) => {
         const next = points[i + 1];
         const dx = next.x - p.x;
@@ -95,14 +98,13 @@ function ScoreTrendGraph({ items }: { items: CompareHistoryItem[] }) {
               top: (p.y + next.y) / 2 - 1.5,
               width: length,
               height: 3,
-              backgroundColor: '#7c3aed',
+              backgroundColor: colors.purple,
               transform: [{ rotate: `${angle}deg` }],
             }}
           />
         );
       })}
 
-      {/* データ点 */}
       {points.map((p, i) => (
         <View
           key={`dot-${i}`}
@@ -113,9 +115,9 @@ function ScoreTrendGraph({ items }: { items: CompareHistoryItem[] }) {
             width: 10,
             height: 10,
             borderRadius: 5,
-            backgroundColor: '#7c3aed',
+            backgroundColor: colors.purple,
             borderWidth: 2,
-            borderColor: '#fff',
+            borderColor: colors.cardBg,
           }}
         />
       ))}
@@ -123,7 +125,19 @@ function ScoreTrendGraph({ items }: { items: CompareHistoryItem[] }) {
   );
 }
 
+function getGraphStyles(colors: AppColors) {
+  return StyleSheet.create({
+    graphEmpty: { alignItems: 'center', paddingVertical: 12 },
+    graphEmptyText: { fontSize: 12, color: colors.textMuted },
+    graphContainer: { position: 'relative', width: '100%', overflow: 'hidden' },
+    graphGuideLine: { height: 1, backgroundColor: colors.graphLine },
+    graphYLabel: { fontSize: 9, color: colors.graphLabel, width: 28, textAlign: 'right', marginRight: 4 },
+  });
+}
+
 function AverageScoreBanner({ items }: { items: CompareHistoryItem[] }) {
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
   const avg = computeAverageScore(items);
   if (avg === null) return null;
   const color = avg >= 70 ? '#16a34a' : avg >= 50 ? '#d97706' : '#dc2626';
@@ -137,6 +151,8 @@ function AverageScoreBanner({ items }: { items: CompareHistoryItem[] }) {
 }
 
 function ScoreBadge({ score }: { score: number }) {
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
   const color = score >= 70 ? '#16a34a' : score >= 50 ? '#d97706' : '#dc2626';
   const bg = score >= 70 ? '#dcfce7' : score >= 50 ? '#fef3c7' : '#fee2e2';
   return (
@@ -147,6 +163,8 @@ function ScoreBadge({ score }: { score: number }) {
 }
 
 function PassBadge({ passed }: { passed: boolean }) {
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
   return (
     <View style={[styles.passBadge, { backgroundColor: passed ? '#dcfce7' : '#fee2e2', borderColor: passed ? '#16a34a' : '#dc2626' }]}>
       <Text style={[styles.passBadgeText, { color: passed ? '#16a34a' : '#dc2626' }]}>
@@ -158,6 +176,8 @@ function PassBadge({ passed }: { passed: boolean }) {
 
 export default function CompareHistoryScreen() {
   const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
   const [history, setHistory] = useState<CompareHistoryItem[]>([]);
   const [selected, setSelected] = useState<CompareHistoryItem | null>(null);
   const [activeSubject, setActiveSubject] = useState<string>(ALL_TAB);
@@ -344,145 +364,132 @@ export default function CompareHistoryScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  wrapper: { flex: 1, backgroundColor: '#f5f5f5' },
-  title: { fontSize: 22, fontWeight: 'bold', marginTop: 16, marginBottom: 8, textAlign: 'center' },
-  tabBar: { paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
-  tab: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 20,
-    borderWidth: 1.5,
-    borderColor: '#D1D5DB',
-    backgroundColor: '#fff',
-  },
-  tabActive: { backgroundColor: '#7c3aed', borderColor: '#7c3aed' },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#6B7280' },
-  tabTextActive: { color: '#fff' },
-  container: { padding: 16 },
-  empty: { textAlign: 'center', color: '#999', fontSize: 15, marginTop: 40, lineHeight: 26 },
-  card: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  subject: { fontWeight: 'bold', color: '#7c3aed', fontSize: 14 },
-  date: { color: '#999', fontSize: 12, marginBottom: 4 },
-  fatalError: { fontSize: 12, color: '#dc2626', fontWeight: '600', marginBottom: 2 },
-  feedbackPreview: { fontSize: 13, color: '#555', marginBottom: 4 },
-  tapHint: { fontSize: 12, color: '#7c3aed', textAlign: 'right', marginTop: 4 },
-  scoreBadge: {
-    paddingVertical: 2,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  scoreBadgeText: { fontSize: 12, fontWeight: 'bold' },
-  passBadge: {
-    paddingVertical: 2,
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  passBadgeText: { fontSize: 11, fontWeight: '600' },
-  modalContainer: { flex: 1, backgroundColor: '#f5f5f5' },
-  modalHeader: {
-    backgroundColor: '#7c3aed',
-    padding: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-  },
-  modalSubject: { color: '#fff', fontSize: 20, fontWeight: 'bold' },
-  modalDate: { color: '#ddd6fe', fontSize: 13 },
-  modalBadges: { flexDirection: 'row', gap: 8, alignItems: 'center' },
-  modalScoreBadge: { backgroundColor: '#fff', borderRadius: 12, paddingVertical: 4, paddingHorizontal: 12 },
-  modalScoreText: { color: '#7c3aed', fontSize: 20, fontWeight: 'bold' },
-  modalPassBadge: { borderRadius: 12, paddingVertical: 4, paddingHorizontal: 10 },
-  modalPassText: { color: '#fff', fontSize: 13, fontWeight: 'bold' },
-  modalScroll: { flex: 1, padding: 20 },
-  alertBox: {
-    backgroundColor: '#fee2e2',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#fca5a5',
-  },
-  alertText: { color: '#dc2626', fontWeight: '600', fontSize: 14 },
-  sectionLabel: { fontSize: 15, fontWeight: 'bold', color: '#7c3aed', marginTop: 16, marginBottom: 8 },
-  feedbackCard: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-    borderLeftWidth: 4,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  feedbackType: { fontSize: 12, fontWeight: 'bold', marginBottom: 4 },
-  feedbackPoint: { fontSize: 13, color: '#333', lineHeight: 20 },
-  stepsCard: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  stepLabel: { fontSize: 12, fontWeight: 'bold', color: '#7c3aed', marginTop: 8, marginBottom: 2 },
-  stepText: { fontSize: 13, color: '#333', lineHeight: 20 },
-  textbookRef: {
-    fontSize: 13,
-    color: '#333',
-    backgroundColor: '#fff',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    lineHeight: 20,
-  },
-  modalFooter: {
-    flexDirection: 'row',
-    padding: 20,
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    backgroundColor: '#fff',
-  },
-  closeButton: { flex: 1, backgroundColor: '#7c3aed', padding: 14, borderRadius: 10, alignItems: 'center' },
-  closeButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  deleteButton: { flex: 1, backgroundColor: '#fee2e2', padding: 14, borderRadius: 10, alignItems: 'center' },
-  deleteButtonText: { color: '#dc2626', fontWeight: 'bold', fontSize: 16 },
-  graphSection: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  graphTitle: { fontSize: 14, fontWeight: 'bold', color: '#7c3aed', marginBottom: 8 },
-  graphContainer: { position: 'relative', width: '100%', overflow: 'hidden' },
-  graphGuideLine: { height: 1, backgroundColor: '#e5e7eb' },
-  graphYLabel: { fontSize: 9, color: '#9CA3AF', width: 28, textAlign: 'right', marginRight: 4 },
-  graphEmpty: { alignItems: 'center', paddingVertical: 12 },
-  graphEmptyText: { fontSize: 12, color: '#9CA3AF' },
-  avgBanner: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-  },
-  avgLabel: { fontSize: 13, fontWeight: '600' },
-  avgValue: { fontSize: 18, fontWeight: 'bold' },
-});
+function createStyles(colors: AppColors) {
+  return StyleSheet.create({
+    wrapper: { flex: 1, backgroundColor: colors.screenBg },
+    title: { fontSize: 22, fontWeight: 'bold', marginTop: 16, marginBottom: 8, textAlign: 'center', color: colors.textPrimary },
+    tabBar: { paddingHorizontal: 16, paddingVertical: 8, gap: 8 },
+    tab: {
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: 20,
+      borderWidth: 1.5,
+      borderColor: colors.cardBorder,
+      backgroundColor: colors.cardBg,
+    },
+    tabActive: { backgroundColor: colors.purple, borderColor: colors.purple },
+    tabText: { fontSize: 13, fontWeight: '600', color: colors.textSecondary },
+    tabTextActive: { color: colors.textInverse },
+    container: { padding: 16 },
+    empty: { textAlign: 'center', color: colors.textMuted, fontSize: 15, marginTop: 40, lineHeight: 26 },
+    card: {
+      backgroundColor: colors.cardBg,
+      borderRadius: 10,
+      padding: 16,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+    cardHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    subject: { fontWeight: 'bold', color: colors.purple, fontSize: 14 },
+    date: { color: colors.textMuted, fontSize: 12, marginBottom: 4 },
+    fatalError: { fontSize: 12, color: colors.dangerText, fontWeight: '600', marginBottom: 2 },
+    feedbackPreview: { fontSize: 13, color: colors.textSecondary, marginBottom: 4 },
+    tapHint: { fontSize: 12, color: colors.purple, textAlign: 'right', marginTop: 4 },
+    scoreBadge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1 },
+    scoreBadgeText: { fontSize: 12, fontWeight: 'bold' },
+    passBadge: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: 12, borderWidth: 1 },
+    passBadgeText: { fontSize: 11, fontWeight: '600' },
+    modalContainer: { flex: 1, backgroundColor: colors.screenBg },
+    modalHeader: {
+      backgroundColor: colors.purple,
+      padding: 24,
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-end',
+    },
+    modalSubject: { color: colors.textInverse, fontSize: 20, fontWeight: 'bold' },
+    modalDate: { color: colors.purpleLight, fontSize: 13 },
+    modalBadges: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+    modalScoreBadge: { backgroundColor: colors.cardBg, borderRadius: 12, paddingVertical: 4, paddingHorizontal: 12 },
+    modalScoreText: { color: colors.purple, fontSize: 20, fontWeight: 'bold' },
+    modalPassBadge: { borderRadius: 12, paddingVertical: 4, paddingHorizontal: 10 },
+    modalPassText: { color: colors.textInverse, fontSize: 13, fontWeight: 'bold' },
+    modalScroll: { flex: 1, padding: 20 },
+    alertBox: {
+      backgroundColor: colors.dangerBg,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: colors.dangerBorder,
+    },
+    alertText: { color: colors.dangerText, fontWeight: '600', fontSize: 14 },
+    sectionLabel: { fontSize: 15, fontWeight: 'bold', color: colors.purple, marginTop: 16, marginBottom: 8 },
+    feedbackCard: {
+      backgroundColor: colors.cardBg,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 8,
+      borderLeftWidth: 4,
+      borderWidth: 1,
+      borderColor: colors.divider,
+    },
+    feedbackType: { fontSize: 12, fontWeight: 'bold', marginBottom: 4 },
+    feedbackPoint: { fontSize: 13, color: colors.textPrimary, lineHeight: 20 },
+    stepsCard: {
+      backgroundColor: colors.cardBg,
+      borderRadius: 8,
+      padding: 12,
+      marginBottom: 8,
+      borderWidth: 1,
+      borderColor: colors.divider,
+    },
+    stepLabel: { fontSize: 12, fontWeight: 'bold', color: colors.purple, marginTop: 8, marginBottom: 2 },
+    stepText: { fontSize: 13, color: colors.textPrimary, lineHeight: 20 },
+    textbookRef: {
+      fontSize: 13,
+      color: colors.textPrimary,
+      backgroundColor: colors.cardBg,
+      padding: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.divider,
+      lineHeight: 20,
+    },
+    modalFooter: {
+      flexDirection: 'row',
+      padding: 20,
+      gap: 12,
+      borderTopWidth: 1,
+      borderTopColor: colors.divider,
+      backgroundColor: colors.cardBg,
+    },
+    closeButton: { flex: 1, backgroundColor: colors.purple, padding: 14, borderRadius: 10, alignItems: 'center' },
+    closeButtonText: { color: colors.textInverse, fontWeight: 'bold', fontSize: 16 },
+    deleteButton: { flex: 1, backgroundColor: colors.dangerBg, padding: 14, borderRadius: 10, alignItems: 'center' },
+    deleteButtonText: { color: colors.dangerText, fontWeight: 'bold', fontSize: 16 },
+    graphSection: {
+      backgroundColor: colors.cardBg,
+      borderRadius: 12,
+      padding: 16,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: colors.divider,
+    },
+    graphTitle: { fontSize: 14, fontWeight: 'bold', color: colors.purple, marginBottom: 8 },
+    avgBanner: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+    },
+    avgLabel: { fontSize: 13, fontWeight: '600' },
+    avgValue: { fontSize: 18, fontWeight: 'bold' },
+  });
+}

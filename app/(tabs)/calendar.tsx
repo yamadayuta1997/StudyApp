@@ -14,6 +14,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useAppTheme } from "@/contexts/ThemeContext";
+import { AppColors } from "@/constants/theme";
 import {
   computeStreak,
   formatDate,
@@ -63,6 +65,8 @@ const EMPTY_WORKBOOK: Omit<Workbook, "id"> = {
 
 export default function CalendarScreen() {
   const insets = useSafeAreaInsets();
+  const { colors } = useAppTheme();
+  const styles = createStyles(colors);
   const now = new Date();
   const [currentYear, setCurrentYear] = useState(now.getFullYear());
   const [currentMonth, setCurrentMonth] = useState(now.getMonth());
@@ -351,9 +355,9 @@ export default function CalendarScreen() {
               const ratio = stats ? stats.done / stats.total : 0;
               const hasHistory = cell.inMonth && streak.studiedDates.has(cell.date);
               const bgColor = !stats ? "transparent"
-                : ratio >= 1 ? "#2563eb"
-                : ratio >= 0.5 ? "#93c5fd"
-                : "#dbeafe";
+                : ratio >= 1 ? colors.accent
+                : ratio >= 0.5 ? colors.borderAlt
+                : colors.accentBg;
               const isSelected = cell.date === selectedDate;
               const isToday = cell.date === today;
               return (
@@ -370,15 +374,15 @@ export default function CalendarScreen() {
                   <Text style={[
                     styles.dayText,
                     !cell.inMonth && styles.dayTextOther,
-                    isSelected && { color: "#fff", fontWeight: "bold" },
-                    idx % 7 === 0 && cell.inMonth && { color: "#dc2626" },
-                    idx % 7 === 6 && cell.inMonth && { color: "#2563eb" },
-                    ratio >= 1 && { color: "#fff" },
+                    isSelected && { color: colors.textInverse, fontWeight: "bold" },
+                    idx % 7 === 0 && cell.inMonth && { color: colors.dangerText },
+                    idx % 7 === 6 && cell.inMonth && { color: colors.accent },
+                    ratio >= 1 && { color: colors.textInverse },
                   ]}>
                     {cell.day}
                   </Text>
                   {stats && (
-                    <Text style={[styles.taskCount, ratio >= 1 && { color: "#fff" }]}>
+                    <Text style={[styles.taskCount, ratio >= 1 && { color: colors.textInverse }]}>
                       {stats.done}/{stats.total}
                     </Text>
                   )}
@@ -552,178 +556,174 @@ export default function CalendarScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  scroll: { backgroundColor: "#f1f5f9" },
-  container: { padding: 16 },
-  title: { fontSize: 22, fontWeight: "bold", color: "#1e293b", marginBottom: 16, textAlign: "center" },
+function createStyles(colors: AppColors) {
+  return StyleSheet.create({
+    scroll: { backgroundColor: colors.screenBg },
+    container: { padding: 16 },
+    title: { fontSize: 22, fontWeight: "bold", color: colors.textPrimary, marginBottom: 16, textAlign: "center" },
 
-  streakCard: {
-    backgroundColor: "#fff7ed",
-    borderRadius: 14,
-    padding: 14,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#fed7aa",
-  },
-  streakMain: { flexDirection: "row", alignItems: "center", gap: 12 },
-  streakFire: { fontSize: 36 },
-  streakCount: { fontSize: 18, fontWeight: "bold", color: "#ea580c" },
-  streakSub: { fontSize: 13, color: "#9a3412", marginTop: 2 },
+    streakCard: {
+      backgroundColor: colors.orangeBg,
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: colors.orangeBorder,
+    },
+    streakMain: { flexDirection: "row", alignItems: "center", gap: 12 },
+    streakFire: { fontSize: 36 },
+    streakCount: { fontSize: 18, fontWeight: "bold", color: colors.orangeText },
+    streakSub: { fontSize: 13, color: colors.orangeTextDark, marginTop: 2 },
 
-  studyDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: "#f97316",
-    marginTop: 1,
-  },
+    studyDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.orange, marginTop: 1 },
 
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  cardTitle: { fontSize: 15, fontWeight: "bold", color: "#1e40af" },
+    card: {
+      backgroundColor: colors.cardBg,
+      borderRadius: 14,
+      padding: 16,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+    cardTitle: { fontSize: 15, fontWeight: "bold", color: colors.textAccent },
 
-  row: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 10 },
-  label: { fontSize: 13, color: "#64748b", width: 50 },
-  input: {
-    flex: 1,
-    borderWidth: 1.5,
-    borderColor: "#e2e8f0",
-    borderRadius: 8,
-    padding: 8,
-    fontSize: 14,
-    color: "#1e293b",
-    backgroundColor: "#f8fafc",
-  },
+    row: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 10 },
+    label: { fontSize: 13, color: colors.textSecondary, width: 50 },
+    input: {
+      flex: 1,
+      borderWidth: 1.5,
+      borderColor: colors.inputBorder,
+      borderRadius: 8,
+      padding: 8,
+      fontSize: 14,
+      color: colors.textPrimary,
+      backgroundColor: colors.inputBg,
+    },
 
-  remainingText: { fontSize: 14, color: "#64748b", marginTop: 4 },
-  remainingNum: { fontSize: 20, fontWeight: "bold", color: "#2563eb" },
+    remainingText: { fontSize: 14, color: colors.textSecondary, marginTop: 4 },
+    remainingNum: { fontSize: 20, fontWeight: "bold", color: colors.accent },
 
-  addButton: {
-    backgroundColor: "#eff6ff",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#bfdbfe",
-  },
-  addButtonText: { color: "#2563eb", fontSize: 13, fontWeight: "600" },
+    addButton: {
+      backgroundColor: colors.accentBg,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      borderRadius: 8,
+      borderWidth: 1,
+      borderColor: colors.accentBorder,
+    },
+    addButtonText: { color: colors.accent, fontSize: 13, fontWeight: "600" },
 
-  emptyText: { textAlign: "center", color: "#94a3b8", fontSize: 14, paddingVertical: 16 },
+    emptyText: { textAlign: "center", color: colors.textMuted, fontSize: 14, paddingVertical: 16 },
 
-  wbRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: "#f1f5f9", gap: 8 },
-  wbOrderBadge: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: "#eff6ff", borderWidth: 1, borderColor: "#bfdbfe",
-    alignItems: "center", justifyContent: "center",
-  },
-  wbOrderText: { fontSize: 12, fontWeight: "bold", color: "#2563eb" },
-  wbInfo: { flex: 1 },
-  wbName: { fontSize: 14, fontWeight: "600", color: "#1e293b", marginBottom: 2 },
-  wbMeta: { fontSize: 12, color: "#64748b" },
-  wbEditBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: "#cbd5e1" },
-  wbEditBtnText: { fontSize: 12, color: "#64748b" },
-  wbDeleteBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: "#fca5a5", backgroundColor: "#fff1f2" },
-  wbDeleteBtnText: { fontSize: 12, color: "#dc2626" },
+    wbRow: { flexDirection: "row", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.screenBg, gap: 8 },
+    wbOrderBadge: {
+      width: 26, height: 26, borderRadius: 13,
+      backgroundColor: colors.accentBg, borderWidth: 1, borderColor: colors.accentBorder,
+      alignItems: "center", justifyContent: "center",
+    },
+    wbOrderText: { fontSize: 12, fontWeight: "bold", color: colors.accent },
+    wbInfo: { flex: 1 },
+    wbName: { fontSize: 14, fontWeight: "600", color: colors.textPrimary, marginBottom: 2 },
+    wbMeta: { fontSize: 12, color: colors.textSecondary },
+    wbEditBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: colors.inputBorderAlt },
+    wbEditBtnText: { fontSize: 12, color: colors.textSecondary },
+    wbDeleteBtn: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: colors.dangerBorder, backgroundColor: colors.dangerBgAlt },
+    wbDeleteBtnText: { fontSize: 12, color: colors.dangerText },
 
-  summaryBox: { backgroundColor: "#f0f9ff", borderRadius: 8, padding: 10, marginTop: 12, marginBottom: 4 },
-  summaryText: { fontSize: 13, color: "#0369a1", textAlign: "center" },
-  summaryNum: { fontWeight: "bold", fontSize: 15 },
+    summaryBox: { backgroundColor: colors.infoBg, borderRadius: 8, padding: 10, marginTop: 12, marginBottom: 4 },
+    summaryText: { fontSize: 13, color: colors.infoText, textAlign: "center" },
+    summaryNum: { fontWeight: "bold", fontSize: 15 },
 
-  generateButton: {
-    backgroundColor: "#2563eb",
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: "center",
-    marginTop: 12,
-  },
-  generateButtonDisabled: { backgroundColor: "#94a3b8" },
-  generateButtonText: { color: "#fff", fontSize: 14, fontWeight: "bold" },
+    generateButton: {
+      backgroundColor: colors.accent,
+      borderRadius: 10,
+      paddingVertical: 12,
+      alignItems: "center",
+      marginTop: 12,
+    },
+    generateButtonDisabled: { backgroundColor: colors.textMuted },
+    generateButtonText: { color: colors.textInverse, fontSize: 14, fontWeight: "bold" },
 
-  calNav: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  navBtn: { padding: 8 },
-  navBtnText: { fontSize: 24, color: "#2563eb", fontWeight: "bold" },
-  calMonth: { fontSize: 16, fontWeight: "bold", color: "#1e293b" },
+    calNav: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+    navBtn: { padding: 8 },
+    navBtnText: { fontSize: 24, color: colors.accent, fontWeight: "bold" },
+    calMonth: { fontSize: 16, fontWeight: "bold", color: colors.textPrimary },
 
-  weekRow: { flexDirection: "row", marginBottom: 4 },
-  weekCell: { flex: 1, alignItems: "center" },
-  weekLabel: { fontSize: 12, fontWeight: "600", color: "#64748b" },
-  gridContainer: { flexDirection: "row", flexWrap: "wrap" },
-  dayCell: {
-    width: "14.2857%",
-    aspectRatio: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: "transparent",
-  },
-  dayCellSelected: { borderColor: "#2563eb", borderWidth: 2 },
-  dayCellToday: { borderColor: "#93c5fd", borderWidth: 1.5 },
-  dayText: { fontSize: 13, color: "#1e293b" },
-  dayTextOther: { color: "#cbd5e1" },
-  taskCount: { fontSize: 9, color: "#64748b" },
+    weekRow: { flexDirection: "row", marginBottom: 4 },
+    weekCell: { flex: 1, alignItems: "center" },
+    weekLabel: { fontSize: 12, fontWeight: "600", color: colors.textSecondary },
+    gridContainer: { flexDirection: "row", flexWrap: "wrap" },
+    dayCell: {
+      width: "14.2857%",
+      aspectRatio: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: "transparent",
+    },
+    dayCellSelected: { borderColor: colors.accent, borderWidth: 2 },
+    dayCellToday: { borderColor: colors.borderAlt, borderWidth: 1.5 },
+    dayText: { fontSize: 13, color: colors.textPrimary },
+    dayTextOther: { color: colors.cardBorder },
+    taskCount: { fontSize: 9, color: colors.textSecondary },
 
-  taskHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
-  taskDate: { fontSize: 14, fontWeight: "bold", color: "#1e40af" },
-  taskCard: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10, gap: 10 },
-  checkbox: {
-    width: 24, height: 24, borderRadius: 6,
-    borderWidth: 2, borderColor: "#cbd5e1",
-    alignItems: "center", justifyContent: "center", marginTop: 2,
-  },
-  checkboxDone: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  checkmark: { color: "#fff", fontSize: 14, fontWeight: "bold" },
-  taskInfo: { flex: 1 },
-  taskTitleRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 3 },
-  subjectChip: {
-    backgroundColor: "#eff6ff",
-    paddingVertical: 2, paddingHorizontal: 7,
-    borderRadius: 10, borderWidth: 1, borderColor: "#bfdbfe",
-  },
-  subjectChipText: { color: "#2563eb", fontSize: 11, fontWeight: "600" },
-  taskTitle: { fontSize: 14, color: "#1e293b", flex: 1 },
-  taskTitleDone: { color: "#94a3b8", textDecorationLine: "line-through" },
-  taskMeta: { fontSize: 12, color: "#94a3b8" },
+    taskHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
+    taskDate: { fontSize: 14, fontWeight: "bold", color: colors.textAccent },
+    taskCard: { flexDirection: "row", alignItems: "flex-start", marginBottom: 10, gap: 10 },
+    checkbox: {
+      width: 24, height: 24, borderRadius: 6,
+      borderWidth: 2, borderColor: colors.inputBorderAlt,
+      alignItems: "center", justifyContent: "center", marginTop: 2,
+    },
+    checkboxDone: { backgroundColor: colors.accent, borderColor: colors.accent },
+    checkmark: { color: colors.textInverse, fontSize: 14, fontWeight: "bold" },
+    taskInfo: { flex: 1 },
+    taskTitleRow: { flexDirection: "row", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 3 },
+    subjectChip: {
+      backgroundColor: colors.accentBg,
+      paddingVertical: 2, paddingHorizontal: 7,
+      borderRadius: 10, borderWidth: 1, borderColor: colors.accentBorder,
+    },
+    subjectChipText: { color: colors.accent, fontSize: 11, fontWeight: "600" },
+    taskTitle: { fontSize: 14, color: colors.textPrimary, flex: 1 },
+    taskTitleDone: { color: colors.textMuted, textDecorationLine: "line-through" },
+    taskMeta: { fontSize: 12, color: colors.textMuted },
 
-  modal: { flex: 1, backgroundColor: "#f8fafc" },
-  modalHeader: {
-    backgroundColor: "#1e40af",
-    padding: 20,
-    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
-  },
-  modalTitle: { color: "#fff", fontSize: 18, fontWeight: "bold" },
-  modalClose: { color: "#fff", fontSize: 22, fontWeight: "bold" },
-  modalBody: { padding: 20 },
+    modal: { flex: 1, backgroundColor: colors.inputBg },
+    modalHeader: {
+      backgroundColor: colors.accentDark,
+      padding: 20,
+      flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    },
+    modalTitle: { color: colors.textInverse, fontSize: 18, fontWeight: "bold" },
+    modalClose: { color: colors.textInverse, fontSize: 22, fontWeight: "bold" },
+    modalBody: { padding: 20 },
 
-  fieldLabel: { fontSize: 14, fontWeight: "bold", color: "#374151", marginBottom: 8, marginTop: 16 },
-  fieldInput: {
-    backgroundColor: "#fff", borderRadius: 10,
-    padding: 12, fontSize: 15,
-    borderWidth: 1.5, borderColor: "#e2e8f0",
-    color: "#1e293b", marginBottom: 4,
-  },
-  fieldHint: { fontSize: 12, color: "#94a3b8", marginBottom: 4 },
+    fieldLabel: { fontSize: 14, fontWeight: "bold", color: colors.textPrimary, marginBottom: 8, marginTop: 16 },
+    fieldInput: {
+      backgroundColor: colors.cardBg, borderRadius: 10,
+      padding: 12, fontSize: 15,
+      borderWidth: 1.5, borderColor: colors.inputBorder,
+      color: colors.textPrimary, marginBottom: 4,
+    },
+    fieldHint: { fontSize: 12, color: colors.textMuted, marginBottom: 4 },
 
-  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
-  chip: {
-    paddingVertical: 7, paddingHorizontal: 12,
-    borderRadius: 20, borderWidth: 1.5, borderColor: "#cbd5e1",
-    backgroundColor: "#f8fafc", marginRight: 8, marginBottom: 8,
-  },
-  chipActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
-  chipText: { color: "#64748b", fontSize: 13, fontWeight: "600" },
-  chipTextActive: { color: "#fff" },
+    chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
+    chip: {
+      paddingVertical: 7, paddingHorizontal: 12,
+      borderRadius: 20, borderWidth: 1.5, borderColor: colors.inputBorderAlt,
+      backgroundColor: colors.inputBg, marginRight: 8, marginBottom: 8,
+    },
+    chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+    chipText: { color: colors.textSecondary, fontSize: 13, fontWeight: "600" },
+    chipTextActive: { color: colors.textInverse },
 
-  submitButton: {
-    backgroundColor: "#2563eb", borderRadius: 12,
-    paddingVertical: 14, alignItems: "center", marginTop: 20, marginBottom: 20,
-  },
-  submitButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
-});
+    submitButton: {
+      backgroundColor: colors.accent, borderRadius: 12,
+      paddingVertical: 14, alignItems: "center", marginTop: 20, marginBottom: 20,
+    },
+    submitButtonText: { color: colors.textInverse, fontSize: 16, fontWeight: "bold" },
+  });
+}

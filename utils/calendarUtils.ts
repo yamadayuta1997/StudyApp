@@ -33,6 +33,62 @@ export function getRemainingDays(examDate: string, from?: Date): number | null {
   return Math.ceil((exam.getTime() - now.getTime()) / 86400000);
 }
 
+export type StreakInfo = {
+  currentStreak: number;
+  longestStreak: number;
+  studiedDates: Set<string>;
+};
+
+function normalizeHistoryDate(dateStr: string): string {
+  // Converts "2026/5/9" (ja-JP locale) or "2026-05-09" to "YYYY-MM-DD"
+  const parts = dateStr.split(/[\/\-]/);
+  if (parts.length !== 3) return dateStr;
+  const [y, m, d] = parts;
+  return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+}
+
+export function computeStreak(historyDates: string[], today?: Date): StreakInfo {
+  const todayDate = today ? new Date(today) : new Date();
+  todayDate.setHours(0, 0, 0, 0);
+
+  const studiedDates = new Set(historyDates.map(normalizeHistoryDate));
+  const sortedDates = [...studiedDates].sort();
+
+  if (sortedDates.length === 0) {
+    return { currentStreak: 0, longestStreak: 0, studiedDates };
+  }
+
+  let longestStreak = 1;
+  let run = 1;
+  for (let i = 1; i < sortedDates.length; i++) {
+    const diffDays = Math.round(
+      (new Date(sortedDates[i]).getTime() - new Date(sortedDates[i - 1]).getTime()) / 86400000
+    );
+    if (diffDays === 1) {
+      run++;
+      if (run > longestStreak) longestStreak = run;
+    } else if (diffDays > 1) {
+      run = 1;
+    }
+  }
+
+  const todayStr = formatDate(todayDate);
+  const yesterdayDate = new Date(todayDate);
+  yesterdayDate.setDate(todayDate.getDate() - 1);
+  const yesterdayStr = formatDate(yesterdayDate);
+
+  let currentStreak = 0;
+  if (studiedDates.has(todayStr) || studiedDates.has(yesterdayStr)) {
+    const checkFrom = studiedDates.has(todayStr) ? new Date(todayDate) : new Date(yesterdayDate);
+    while (studiedDates.has(formatDate(checkFrom))) {
+      currentStreak++;
+      checkFrom.setDate(checkFrom.getDate() - 1);
+    }
+  }
+
+  return { currentStreak, longestStreak, studiedDates };
+}
+
 // Generates tasks by allocating pages across days sequentially.
 // Books are processed in order (order field), and each round of a book
 // completes before the next begins.

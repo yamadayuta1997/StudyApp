@@ -1,4 +1,4 @@
-import { generateTasksFromWorkbooks, getRemainingDays, Workbook } from "../calendarUtils";
+import { computeStreak, generateTasksFromWorkbooks, getRemainingDays, Workbook } from "../calendarUtils";
 
 const BASE = new Date("2026-01-01T00:00:00");
 const EXAM_31 = "2026-02-01"; // 31 days from BASE
@@ -100,5 +100,75 @@ describe("generateTasksFromWorkbooks", () => {
       expect(t.date >= "2026-01-01").toBe(true);
       expect(t.date < EXAM_31).toBe(true);
     }
+  });
+});
+
+describe("computeStreak", () => {
+  const TODAY = new Date("2026-05-09T00:00:00");
+
+  test("returns zero streaks for empty history", () => {
+    const result = computeStreak([], TODAY);
+    expect(result.currentStreak).toBe(0);
+    expect(result.longestStreak).toBe(0);
+    expect(result.studiedDates.size).toBe(0);
+  });
+
+  test("handles ISO date format (YYYY-MM-DD)", () => {
+    const result = computeStreak(["2026-05-09"], TODAY);
+    expect(result.currentStreak).toBe(1);
+    expect(result.longestStreak).toBe(1);
+    expect(result.studiedDates.has("2026-05-09")).toBe(true);
+  });
+
+  test("handles ja-JP locale date format (YYYY/M/D)", () => {
+    const result = computeStreak(["2026/5/9"], TODAY);
+    expect(result.currentStreak).toBe(1);
+    expect(result.studiedDates.has("2026-05-09")).toBe(true);
+  });
+
+  test("currentStreak counts consecutive days ending today", () => {
+    const dates = ["2026/5/7", "2026/5/8", "2026/5/9"];
+    const result = computeStreak(dates, TODAY);
+    expect(result.currentStreak).toBe(3);
+  });
+
+  test("currentStreak counts consecutive days ending yesterday", () => {
+    const dates = ["2026/5/6", "2026/5/7", "2026/5/8"];
+    const result = computeStreak(dates, TODAY);
+    expect(result.currentStreak).toBe(3);
+  });
+
+  test("currentStreak is 0 when last activity was 2+ days ago", () => {
+    const dates = ["2026/5/6", "2026/5/7"];
+    const result = computeStreak(dates, TODAY);
+    expect(result.currentStreak).toBe(0);
+  });
+
+  test("longestStreak is computed correctly across gap", () => {
+    // 3-day run, gap, 2-day run
+    const dates = ["2026/5/1", "2026/5/2", "2026/5/3", "2026/5/5", "2026/5/6"];
+    const result = computeStreak(dates, TODAY);
+    expect(result.longestStreak).toBe(3);
+  });
+
+  test("duplicate dates are deduplicated", () => {
+    const dates = ["2026/5/9", "2026/5/9", "2026/5/8"];
+    const result = computeStreak(dates, TODAY);
+    expect(result.currentStreak).toBe(2);
+    expect(result.studiedDates.size).toBe(2);
+  });
+
+  test("longestStreak equals currentStreak for single continuous block ending today", () => {
+    const dates = ["2026/5/7", "2026/5/8", "2026/5/9"];
+    const result = computeStreak(dates, TODAY);
+    expect(result.longestStreak).toBe(result.currentStreak);
+  });
+
+  test("studiedDates contains all unique normalized dates", () => {
+    const dates = ["2026/5/1", "2026/5/2", "2026-05-03"];
+    const result = computeStreak(dates, TODAY);
+    expect(result.studiedDates.has("2026-05-01")).toBe(true);
+    expect(result.studiedDates.has("2026-05-02")).toBe(true);
+    expect(result.studiedDates.has("2026-05-03")).toBe(true);
   });
 });

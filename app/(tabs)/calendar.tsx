@@ -15,9 +15,11 @@ import {
   View,
 } from "react-native";
 import {
+  computeStreak,
   formatDate,
   generateTasksFromWorkbooks,
   getRemainingDays,
+  StreakInfo,
   StudyTask,
   Workbook,
 } from "../../utils/calendarUtils";
@@ -74,6 +76,8 @@ export default function CalendarScreen() {
   const [editingWorkbook, setEditingWorkbook] = useState<Workbook | null>(null);
   const [wbForm, setWbForm] = useState(EMPTY_WORKBOOK);
 
+  const [streak, setStreak] = useState<StreakInfo>({ currentStreak: 0, longestStreak: 0, studiedDates: new Set() });
+
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskSubject, setNewTaskSubject] = useState(SUBJECTS[0]);
@@ -82,14 +86,17 @@ export default function CalendarScreen() {
   useFocusEffect(useCallback(() => { load(); }, []));
 
   const load = async () => {
-    const [rawExam, rawWorkbooks, rawTasks] = await Promise.all([
+    const [rawExam, rawWorkbooks, rawTasks, rawHistory] = await Promise.all([
       AsyncStorage.getItem("examDate_v2"),
       AsyncStorage.getItem("workbooks_v2"),
       AsyncStorage.getItem("studyTasks_v2"),
+      AsyncStorage.getItem("history"),
     ]);
     if (rawExam) setExamDate(rawExam);
     if (rawWorkbooks) setWorkbooks(JSON.parse(rawWorkbooks));
     if (rawTasks) setTasks(JSON.parse(rawTasks));
+    const historyItems: { date: string }[] = rawHistory ? JSON.parse(rawHistory) : [];
+    setStreak(computeStreak(historyItems.map(h => h.date)));
   };
 
   const saveExamDate = async (v: string) => {
@@ -236,6 +243,17 @@ export default function CalendarScreen() {
       <ScrollView style={styles.scroll} contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
         <Text style={styles.title}>📅 学習カレンダー</Text>
 
+        {/* ストリーク */}
+        <View style={styles.streakCard}>
+          <View style={styles.streakMain}>
+            <Text style={styles.streakFire}>🔥</Text>
+            <View>
+              <Text style={styles.streakCount}>{streak.currentStreak}日連続学習中</Text>
+              <Text style={styles.streakSub}>最長記録: {streak.longestStreak}日</Text>
+            </View>
+          </View>
+        </View>
+
         {/* 試験日 */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>🎯 試験日設定</Text>
@@ -331,6 +349,7 @@ export default function CalendarScreen() {
             {grid.map((cell, idx) => {
               const stats = getTaskStats(cell.date);
               const ratio = stats ? stats.done / stats.total : 0;
+              const hasHistory = cell.inMonth && streak.studiedDates.has(cell.date);
               const bgColor = !stats ? "transparent"
                 : ratio >= 1 ? "#2563eb"
                 : ratio >= 0.5 ? "#93c5fd"
@@ -362,6 +381,9 @@ export default function CalendarScreen() {
                     <Text style={[styles.taskCount, ratio >= 1 && { color: "#fff" }]}>
                       {stats.done}/{stats.total}
                     </Text>
+                  )}
+                  {hasHistory && !stats && (
+                    <View style={styles.studyDot} />
                   )}
                 </TouchableOpacity>
               );
@@ -534,6 +556,27 @@ const styles = StyleSheet.create({
   scroll: { backgroundColor: "#f1f5f9" },
   container: { padding: 16 },
   title: { fontSize: 22, fontWeight: "bold", color: "#1e293b", marginBottom: 16, textAlign: "center" },
+
+  streakCard: {
+    backgroundColor: "#fff7ed",
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#fed7aa",
+  },
+  streakMain: { flexDirection: "row", alignItems: "center", gap: 12 },
+  streakFire: { fontSize: 36 },
+  streakCount: { fontSize: 18, fontWeight: "bold", color: "#ea580c" },
+  streakSub: { fontSize: 13, color: "#9a3412", marginTop: 2 },
+
+  studyDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#f97316",
+    marginTop: 1,
+  },
 
   card: {
     backgroundColor: "#fff",

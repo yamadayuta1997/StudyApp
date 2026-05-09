@@ -2,7 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { calcSubjectAvgScore, AvgScoreResult } from "@/utils/subjectAvgScore";
 import { supabase } from "@/utils/supabase";
 import { updateCautionTopics } from "@/utils/cautionTopics";
 import { buildAnswerShareText } from "@/utils/shareResult";
@@ -202,6 +203,9 @@ export default function AnswerScreen() {
   // Answer images
   const [answerImages, setAnswerImages] = useState<{ uri: string; base64: string }[]>([]);
 
+  // Subject average score
+  const [subjectAvgScore, setSubjectAvgScore] = useState<AvgScoreResult | null>(null);
+
   // Subject selection modal
   const [subjectModalVisible, setSubjectModalVisible] = useState(false);
 
@@ -211,7 +215,22 @@ export default function AnswerScreen() {
 
   useFocusEffect(useCallback(() => {
     loadBooks();
+    loadSubjectAvg(subject);
   }, []));
+
+  useEffect(() => {
+    loadSubjectAvg(subject);
+  }, [subject]);
+
+  const loadSubjectAvg = async (s: string) => {
+    try {
+      const raw = await AsyncStorage.getItem("history");
+      const history = raw ? JSON.parse(raw) : [];
+      setSubjectAvgScore(calcSubjectAvgScore(history, s));
+    } catch {
+      setSubjectAvgScore(null);
+    }
+  };
 
   const loadBooks = async () => {
     try {
@@ -843,6 +862,15 @@ export default function AnswerScreen() {
               </TouchableOpacity>
             ))}
           </View>
+          {subjectAvgScore !== null && (
+            <View style={styles.avgScoreBanner}>
+              {subjectAvgScore.type === "none" ? (
+                <Text style={styles.avgScoreFirstText}>🎉 初挑戦！</Text>
+              ) : (
+                <Text style={styles.avgScoreText}>📈 この科目の平均: <Text style={styles.avgScoreValue}>{subjectAvgScore.value}%</Text></Text>
+              )}
+            </View>
+          )}
         </View>
 
         {/* 参照教科書 */}
@@ -1176,6 +1204,10 @@ function createStyles(colors: AppColors) {
     pageRangeRow: { flexDirection: "row" as const, alignItems: "center" as const, marginBottom: 10, gap: 6 },
     pageInput: { width: 56, borderWidth: 1, borderColor: colors.inputBorder, borderRadius: 8, padding: 6, fontSize: 13, textAlign: "center" as const, color: colors.textPrimary, backgroundColor: colors.inputBg },
     pageRangeSep: { fontSize: 13, color: colors.textMuted },
+    avgScoreBanner: { marginTop: 12, backgroundColor: colors.accentBg, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 14, borderWidth: 1, borderColor: colors.accentBorder, alignSelf: "flex-start" as const },
+    avgScoreText: { fontSize: 13, color: colors.textAccent, fontWeight: "600" as const },
+    avgScoreValue: { color: colors.accent, fontWeight: "bold" as const },
+    avgScoreFirstText: { fontSize: 13, color: colors.successText, fontWeight: "600" as const },
   });
 }
 

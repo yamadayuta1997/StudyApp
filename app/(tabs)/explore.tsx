@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import Markdown from "react-native-markdown-display";
+import { applyFilters, PassFailFilter, SortOrder } from "../../utils/historyFilter";
 
 export type HistoryItem = {
   id: string;
@@ -43,6 +44,8 @@ export default function HistoryScreen() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [selected, setSelected] = useState<HistoryItem | null>(null);
   const [filterSubject, setFilterSubject] = useState<string | null>(params.subject ?? null);
+  const [passFailFilter, setPassFailFilter] = useState<PassFailFilter>("all");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
 
   const loadHistory = async () => {
     const raw = await AsyncStorage.getItem("history");
@@ -64,9 +67,7 @@ export default function HistoryScreen() {
 
   const subjects = [...new Set(history.map(h => h.subject))];
 
-  const filtered = filterSubject
-    ? history.filter(h => h.subject === filterSubject)
-    : history;
+  const filtered = applyFilters(history, filterSubject, passFailFilter, sortOrder);
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
@@ -96,11 +97,36 @@ export default function HistoryScreen() {
         </ScrollView>
       )}
 
+      {/* 合否フィルター + 日付ソート */}
+      <View style={styles.subFilterRow}>
+        <View style={styles.passFailRow}>
+          {(["all", "pass", "fail"] as PassFailFilter[]).map((f) => (
+            <TouchableOpacity
+              key={f}
+              style={[styles.filterChip, passFailFilter === f && styles.filterChipActive]}
+              onPress={() => setPassFailFilter(f)}
+            >
+              <Text style={[styles.filterChipText, passFailFilter === f && styles.filterChipTextActive]}>
+                {f === "all" ? "合否すべて" : f === "pass" ? "合格" : "不合格"}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <TouchableOpacity
+          style={styles.sortButton}
+          onPress={() => setSortOrder(o => o === "newest" ? "oldest" : "newest")}
+        >
+          <Text style={styles.sortButtonText}>
+            {sortOrder === "newest" ? "新しい順 ↓" : "古い順 ↑"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       {filtered.length === 0 && (
         <Text style={styles.empty}>まだ履歴がありません</Text>
       )}
 
-      {filtered.slice().reverse().map((item) => (
+      {filtered.map((item) => (
         <TouchableOpacity key={item.id} style={styles.card} onPress={() => setSelected(item)}>
           <View style={styles.cardHeader}>
             <Text style={styles.subject}>{item.subject}</Text>
@@ -175,6 +201,17 @@ const styles = StyleSheet.create({
   filterChipActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
   filterChipText: { color: "#64748b", fontSize: 13, fontWeight: "600" },
   filterChipTextActive: { color: "#fff" },
+  subFilterRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 },
+  passFailRow: { flexDirection: "row", gap: 8 },
+  sortButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: "#2563eb",
+    backgroundColor: "#eff6ff",
+  },
+  sortButtonText: { color: "#2563eb", fontSize: 13, fontWeight: "600" },
   empty: { textAlign: "center", color: "#999", fontSize: 16, marginTop: 40 },
   card: {
     backgroundColor: "#fff",

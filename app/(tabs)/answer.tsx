@@ -2,16 +2,18 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { supabase } from "@/utils/supabase";
 import { updateCautionTopics } from "@/utils/cautionTopics";
 import { buildAnswerShareText } from "@/utils/shareResult";
 import { apiClient, TextbookMeta } from "@/utils/apiClient";
+import { pageToX, xToPage, clampFrom, clampTo } from "@/utils/pageRangeSlider";
 import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
   Platform,
   ScrollView,
   Share,
@@ -25,6 +27,108 @@ import {
 import DraggableFlatList, { ScaleDecorator } from "react-native-draggable-flatlist";
 import Markdown from "react-native-markdown-display";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
+function RangeSlider({ min, max, from, to, onFromChange, onToChange }: {
+  min: number; max: number; from: number; to: number;
+  onFromChange: (v: number) => void; onToChange: (v: number) => void;
+}) {
+  const [trackWidth, setTrackWidth] = useState(0);
+  const trackWidthRef = useRef(0);
+  const fromStartXRef = useRef(0);
+  const toStartXRef = useRef(0);
+  const fromRef = useRef(from);
+  const toRef = useRef(to);
+  const minRef = useRef(min);
+  const maxRef = useRef(max);
+  const onFromRef = useRef(onFromChange);
+  const onToRef = useRef(onToChange);
+
+  fromRef.current = from;
+  toRef.current = to;
+  minRef.current = min;
+  maxRef.current = max;
+  onFromRef.current = onFromChange;
+  onToRef.current = onToChange;
+
+  const fromPan = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => {
+      fromStartXRef.current = pageToX(fromRef.current, minRef.current, maxRef.current, trackWidthRef.current);
+    },
+    onPanResponderMove: (_, g) => {
+      const tw = trackWidthRef.current;
+      const mn = minRef.current;
+      const mx = maxRef.current;
+      if (tw === 0 || mx <= mn) return;
+      const toX = pageToX(toRef.current, mn, mx, tw);
+      const newX = Math.max(0, Math.min(toX - 4, fromStartXRef.current + g.dx));
+      const newVal = clampFrom(xToPage(newX, mn, mx, tw), mn, toRef.current);
+      if (newVal !== fromRef.current) onFromRef.current(newVal);
+    },
+  })).current;
+
+  const toPan = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => {
+      toStartXRef.current = pageToX(toRef.current, minRef.current, maxRef.current, trackWidthRef.current);
+    },
+    onPanResponderMove: (_, g) => {
+      const tw = trackWidthRef.current;
+      const mn = minRef.current;
+      const mx = maxRef.current;
+      if (tw === 0 || mx <= mn) return;
+      const fromX = pageToX(fromRef.current, mn, mx, tw);
+      const newX = Math.min(tw, Math.max(fromX + 4, toStartXRef.current + g.dx));
+      const newVal = clampTo(xToPage(newX, mn, mx, tw), fromRef.current, mx);
+      if (newVal !== toRef.current) onToRef.current(newVal);
+    },
+  })).current;
+
+  const fromX = pageToX(from, min, max, trackWidth);
+  const toX = pageToX(to, min, max, trackWidth);
+
+  return (
+    <View style={sliderStyles.wrapper}>
+      <View
+        style={sliderStyles.track}
+        onLayout={e => {
+          const w = e.nativeEvent.layout.width;
+          trackWidthRef.current = w;
+          setTrackWidth(w);
+        }}
+      >
+        {trackWidth > 0 && (
+          <>
+            <View style={[sliderStyles.fill, { left: fromX, width: Math.max(0, toX - fromX) }]} />
+            <View
+              {...fromPan.panHandlers}
+              style={[sliderStyles.thumb, { left: fromX - 12 }]}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            />
+            <View
+              {...toPan.panHandlers}
+              style={[sliderStyles.thumb, { left: toX - 12 }]}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            />
+          </>
+        )}
+      </View>
+      <View style={sliderStyles.minMaxLabels}>
+        <Text style={sliderStyles.minMaxText}>{min}p</Text>
+        <Text style={sliderStyles.minMaxText}>{max}p</Text>
+      </View>
+    </View>
+  );
+}
+
+const sliderStyles = StyleSheet.create({
+  wrapper: { paddingVertical: 4 },
+  track: { height: 4, backgroundColor: "#e2e8f0", borderRadius: 2, position: "relative", marginVertical: 16, marginHorizontal: 16 },
+  fill: { position: "absolute", height: 4, backgroundColor: "#2563eb", borderRadius: 2 },
+  thumb: { position: "absolute", top: -10, width: 24, height: 24, borderRadius: 12, backgroundColor: "#2563eb", borderWidth: 3, borderColor: "#fff", elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 3 },
+  minMaxLabels: { flexDirection: "row", justifyContent: "space-between", marginHorizontal: 8 },
+  minMaxText: { fontSize: 11, color: "#94a3b8" },
+});
 
 const MAX_IMAGES = 10;
 
@@ -56,8 +160,10 @@ export default function AnswerScreen() {
   const [pdfInfo, setPdfInfo] = useState<{
     totalPages: number; fromPage: number; toPage: number; imagePages?: number[];
   } | null>(null);
-  const [fromPage, setFromPage] = useState("1");
-  const [toPage, setToPage] = useState("");
+  const [allPages, setAllPages] = useState(false);
+  const [sliderMax, setSliderMax] = useState(100);
+  const [sliderFrom, setSliderFrom] = useState(1);
+  const [sliderTo, setSliderTo] = useState(100);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -154,13 +260,18 @@ export default function AnswerScreen() {
     } else {
       formData.append("pdf", { uri: file.uri, type: "application/pdf", name: file.name } as any);
     }
-    if (fromPage) formData.append("fromPage", fromPage);
-    if (toPage) formData.append("toPage", toPage);
+    if (!allPages) {
+      formData.append("fromPage", String(sliderFrom));
+      formData.append("toPage", String(sliderTo));
+    }
 
     try {
       const data = await apiClient.extractPdf(formData);
       setQuestion(data.text);
       setPdfInfo({ totalPages: data.totalPages, fromPage: data.fromPage, toPage: data.toPage, imagePages: data.imagePages || [] });
+      setSliderMax(data.totalPages);
+      setSliderFrom(f => Math.min(f, data.totalPages));
+      setSliderTo(data.totalPages);
     } catch (e: any) {
       const msg: string = e.message || "";
       if (e.name === "AbortError" || msg.includes("aborted")) {
@@ -441,12 +552,36 @@ export default function AnswerScreen() {
               <Text style={styles.ocrDoneText}>✅ 「{questionOcrFileName}」から問題文を読み取りました</Text>
             </View>
           )}
-          <View style={styles.pageRangeRow}>
-            <Text style={styles.pageRangeLabel}>ページ範囲：</Text>
-            <TextInput style={styles.pageInput} value={fromPage} onChangeText={setFromPage} placeholder="開始" keyboardType="numeric" placeholderTextColor="#94a3b8" />
-            <Text style={styles.pageRangeSep}>〜</Text>
-            <TextInput style={styles.pageInput} value={toPage} onChangeText={setToPage} placeholder="終了" keyboardType="numeric" placeholderTextColor="#94a3b8" />
-            <Text style={styles.pageRangeHint}>（空欄=全ページ）</Text>
+          <View style={styles.pageRangeSection}>
+            <View style={styles.pageRangeHeader}>
+              <Text style={styles.pageRangeLabel}>ページ範囲</Text>
+              <TouchableOpacity
+                style={[styles.allPagesToggle, allPages && styles.allPagesToggleActive]}
+                onPress={() => {
+                  const next = !allPages;
+                  setAllPages(next);
+                  if (next) {
+                    setSliderFrom(1);
+                    setSliderTo(sliderMax);
+                  }
+                }}
+              >
+                <Text style={[styles.allPagesToggleText, allPages && styles.allPagesToggleTextActive]}>全ページ</Text>
+              </TouchableOpacity>
+            </View>
+            {!allPages && (
+              <RangeSlider
+                min={1}
+                max={sliderMax}
+                from={sliderFrom}
+                to={sliderTo}
+                onFromChange={setSliderFrom}
+                onToChange={setSliderTo}
+              />
+            )}
+            <Text style={styles.pageRangeDisplay}>
+              {allPages ? `全ページ（1〜${sliderMax}p）` : `P.${sliderFrom} 〜 P.${sliderTo}`}
+            </Text>
           </View>
           {pdfInfo && (
             <View style={styles.pdfPreview}>
@@ -922,11 +1057,14 @@ const styles = StyleSheet.create({
   bookSelectPages: { fontSize: 12, color: "#94a3b8" },
   uploadButton: { backgroundColor: "#eff6ff", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: "#bfdbfe", minWidth: 44, alignItems: "center" },
   uploadButtonText: { color: "#2563eb", fontSize: 13, fontWeight: "600" },
-  pageRangeRow: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 6 },
-  pageRangeLabel: { fontSize: 13, color: "#64748b" },
-  pageInput: { width: 56, borderWidth: 1, borderColor: "#e2e8f0", borderRadius: 8, padding: 6, fontSize: 13, textAlign: "center", color: "#1e293b", backgroundColor: "#f8fafc" },
-  pageRangeSep: { fontSize: 13, color: "#64748b" },
-  pageRangeHint: { fontSize: 11, color: "#94a3b8" },
+  pageRangeSection: { marginBottom: 10 },
+  pageRangeHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
+  pageRangeLabel: { fontSize: 13, color: "#64748b", fontWeight: "600" },
+  allPagesToggle: { paddingVertical: 4, paddingHorizontal: 12, borderRadius: 16, borderWidth: 1.5, borderColor: "#cbd5e1", backgroundColor: "#f8fafc" },
+  allPagesToggleActive: { backgroundColor: "#2563eb", borderColor: "#2563eb" },
+  allPagesToggleText: { fontSize: 12, fontWeight: "600", color: "#64748b" },
+  allPagesToggleTextActive: { color: "#fff" },
+  pageRangeDisplay: { fontSize: 13, color: "#2563eb", fontWeight: "600", textAlign: "center", marginTop: 2 },
   pdfPreview: { backgroundColor: "#f0fdf4", borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: "#bbf7d0", flexDirection: "row", justifyContent: "space-between" },
   pdfPreviewText: { fontSize: 12, color: "#166534" },
   imagePagesWarning: { backgroundColor: "#fffbeb", borderRadius: 8, padding: 10, marginBottom: 10, borderWidth: 1, borderColor: "#fde68a" },

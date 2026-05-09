@@ -10,6 +10,7 @@ import { Session } from '@supabase/supabase-js';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { supabase } from '@/utils/supabase';
 import { useNetworkStatus } from '@/utils/useNetworkStatus';
+import { loadNotificationTime, requestNotificationPermission, scheduleReminderNotification } from '@/utils/notifications';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -26,6 +27,13 @@ export default function RootLayout() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
       setSession(s);
     });
+    (async () => {
+      const granted = await requestNotificationPermission();
+      if (granted) {
+        const time = await loadNotificationTime();
+        await scheduleReminderNotification(time);
+      }
+    })();
     return () => subscription.unsubscribe();
   }, []);
 

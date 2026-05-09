@@ -3,8 +3,12 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { getCautionTopics, CautionTopic } from "@/utils/cautionTopics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as FileSystem from "expo-file-system";
+import * as Sharing from "expo-sharing";
+import { buildHistoryCsv } from "@/utils/exportCsv";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -155,6 +159,25 @@ export default function AnalyticsScreen() {
     }
   };
 
+  const exportCSV = async () => {
+    const raw = await AsyncStorage.getItem("history");
+    const history: HistoryItem[] = raw ? JSON.parse(raw) : [];
+    if (history.length === 0) {
+      Alert.alert("データなし", "エクスポートする採点履歴がありません。");
+      return;
+    }
+    const csv = buildHistoryCsv(history);
+    const fileName = `studyapp_export_${new Date().toISOString().split("T")[0]}.csv`;
+    const fileUri = FileSystem.documentDirectory + fileName;
+    await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
+    const canShare = await Sharing.isAvailableAsync();
+    if (canShare) {
+      await Sharing.shareAsync(fileUri, { mimeType: "text/csv", dialogTitle: "CSVをエクスポート" });
+    } else {
+      Alert.alert("完了", `ファイルを保存しました:\n${fileUri}`);
+    }
+  };
+
   const router = useRouter();
   const weakSubjects = stats.filter(s => s.avgScore !== null && s.avgScore < 60);
   const untried = stats.filter(s => s.count === 0);
@@ -172,6 +195,13 @@ export default function AnalyticsScreen() {
             <Text style={styles.emptyButtonText}>採点する →</Text>
           </TouchableOpacity>
         </View>
+      )}
+
+      {/* エクスポートボタン */}
+      {totalCount > 0 && (
+        <TouchableOpacity style={styles.exportButton} onPress={exportCSV}>
+          <Text style={styles.exportButtonText}>📥 CSVエクスポート</Text>
+        </TouchableOpacity>
       )}
 
       {/* サマリー以降（採点あり時のみ） */}
@@ -378,6 +408,17 @@ function createStyles(colors: AppColors) {
       borderColor: colors.warningBorder,
     },
     cautionBadgeText: { color: colors.warningDark, fontSize: 12, fontWeight: "bold" },
+    exportButton: {
+      backgroundColor: colors.accentBg,
+      borderRadius: 12,
+      paddingVertical: 12,
+      paddingHorizontal: 20,
+      marginBottom: 16,
+      alignItems: "center",
+      borderWidth: 1,
+      borderColor: colors.accentBorder,
+    },
+    exportButtonText: { color: colors.accent, fontSize: 15, fontWeight: "700" },
     emptyContainer: { alignItems: "center", paddingVertical: 60, gap: 20 },
     emptyText: { fontSize: 18, fontWeight: "bold", color: colors.textSecondary },
     emptyButton: {

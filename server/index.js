@@ -12,9 +12,29 @@ const { connectMongo, isMongoEnabled } = require("./mongodb");
 const Textbook = isMongoEnabled ? require("./models/Textbook") : null;
 const Chunk    = isMongoEnabled ? require("./models/Chunk")    : null;
 
+const rateLimit = require("express-rate-limit");
+
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: "20mb" }));
+
+const gradeLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "リクエストが多すぎます。1分後に再試行してください。" },
+  statusCode: 429,
+});
+
+const textbookRegisterLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "リクエストが多すぎます。1時間後に再試行してください。" },
+  statusCode: 429,
+});
 
 // ---- OCR プロンプト定数（手書き答案の認識精度向上） ----
 const HANDWRITING_OCR_PROMPT = `あなたは手書き文字認識の専門家です。以下の手書き答案画像を最高精度でテキスト化してください。
@@ -317,7 +337,7 @@ app.get("/health", async (req, res) => {
 });
 
 // ---- Textbook: Register ----
-app.post("/textbook/register", (req, res, next) => {
+app.post("/textbook/register", textbookRegisterLimiter, (req, res, next) => {
   // multer のエラー（LIMIT_FILE_SIZE 等）を JSON で返すためにラップ
   upload.single("pdf")(req, res, (err) => {
     if (err) {
@@ -709,7 +729,7 @@ app.post("/textbook/chunks-by-pages", async (req, res) => {
 });
 
 // ---- Grade ----
-app.post("/grade", async (req, res) => {
+app.post("/grade", gradeLimiter, async (req, res) => {
   try {
     const { question, answer, subject, bookIds = [], questionImages = [], answerImages = [],
             sourceBookId, sourceFromPage, sourceToPage, deviceId, userId } = req.body;
@@ -1220,7 +1240,7 @@ app.get("/grade-compare/eval-status/:jobId", (req, res) => {
   res.json(job);
 });
 
-app.post("/grade-compare", async (req, res) => {
+app.post("/grade-compare", gradeLimiter, async (req, res) => {
   try {
     const { answerImage, modelAnswerImage, modelAnswerText, subject, promptTips, deviceId, userId, gradingCriteria } = req.body;
 

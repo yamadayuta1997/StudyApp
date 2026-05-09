@@ -19,6 +19,10 @@ import {
 
 const SUBJECTS = ["財務会計論", "管理会計論", "監査論", "企業法", "租税法", "経営学"];
 
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024; // 50MB
+const BYTES_PER_ESTIMATED_PAGE = 100 * 1024; // ~100KB per page
+const PAGE_WARNING_THRESHOLD = 500;
+
 export function computeProgress(phase: string, progress?: number, total?: number): number {
   if (phase === "uploading") return 5;
   if (phase === "analyzing_diagrams") return 20;
@@ -47,6 +51,8 @@ export default function TextbookScreen() {
   const [regStatusText, setRegStatusText] = useState("アップロード中...");
   const [regProgress, setRegProgress] = useState(0);
   const [regError, setRegError] = useState("");
+  const [selectedFile, setSelectedFile] = useState<DocumentPicker.DocumentPickerAsset | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
   const regPollingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadBooks = async () => {
@@ -96,6 +102,8 @@ export default function TextbookScreen() {
     setRegBookName("");
     setRegDescription("");
     setRegSubject(SUBJECTS[0]);
+    setSelectedFile(null);
+    setShowConfirm(false);
   };
 
   const pollJobStatus = useCallback(async (jobId: string) => {
@@ -144,6 +152,21 @@ export default function TextbookScreen() {
     if (picked.canceled) return;
 
     const file = picked.assets[0];
+
+    if (file.size != null && file.size > MAX_FILE_SIZE_BYTES) {
+      setRegError(`ファイルサイズが大きすぎます（${(file.size / 1024 / 1024).toFixed(1)}MB）。50MB以下のPDFを選択してください。`);
+      return;
+    }
+
+    setRegError("");
+    setSelectedFile(file);
+    setShowConfirm(true);
+  };
+
+  const handleConfirm = async () => {
+    if (!selectedFile) return;
+    const file = selectedFile;
+    setShowConfirm(false);
     setRegLoading(true);
     setRegProgress(5);
     setRegError("");
@@ -291,6 +314,52 @@ export default function TextbookScreen() {
                   </View>
                   <Text style={styles.progressPercent}>{regProgress}%</Text>
                 </View>
+              ) : showConfirm && selectedFile ? (
+                <>
+                  <Text style={styles.confirmTitle}>登録内容の確認</Text>
+                  <View style={styles.confirmCard}>
+                    <View style={styles.confirmRow}>
+                      <Text style={styles.confirmLabel}>ファイル名</Text>
+                      <Text style={styles.confirmValue} numberOfLines={2}>{selectedFile.name}</Text>
+                    </View>
+                    <View style={styles.confirmRow}>
+                      <Text style={styles.confirmLabel}>ファイルサイズ</Text>
+                      <Text style={styles.confirmValue}>
+                        {selectedFile.size != null ? `${(selectedFile.size / 1024 / 1024).toFixed(1)} MB` : "不明"}
+                      </Text>
+                    </View>
+                    <View style={styles.confirmRow}>
+                      <Text style={styles.confirmLabel}>推定ページ数</Text>
+                      <Text style={styles.confirmValue}>
+                        {selectedFile.size != null
+                          ? `約 ${Math.ceil(selectedFile.size / BYTES_PER_ESTIMATED_PAGE)} ページ`
+                          : "不明"}
+                      </Text>
+                    </View>
+                  </View>
+                  {selectedFile.size != null &&
+                    Math.ceil(selectedFile.size / BYTES_PER_ESTIMATED_PAGE) > PAGE_WARNING_THRESHOLD && (
+                    <View style={styles.warningBox}>
+                      <Text style={styles.warningText}>
+                        ⚠️ ページ数が多いため、処理に時間がかかる場合があります。
+                      </Text>
+                    </View>
+                  )}
+                  {regError !== "" && (
+                    <View style={styles.errorBox}>
+                      <Text style={styles.errorText}>⚠️ {regError}</Text>
+                    </View>
+                  )}
+                  <TouchableOpacity style={styles.registerButton} onPress={handleConfirm}>
+                    <Text style={styles.registerButtonText}>✅ 登録を確定する</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.backButton}
+                    onPress={() => { setShowConfirm(false); setSelectedFile(null); }}
+                  >
+                    <Text style={styles.backButtonText}>← 戻る</Text>
+                  </TouchableOpacity>
+                </>
               ) : (
                 <>
                   <Text style={styles.fieldLabel}>科目 *</Text>
@@ -510,4 +579,42 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   ctaBannerButtonText: { color: "#fff", fontSize: 14, fontWeight: "bold" },
+  confirmTitle: { fontSize: 18, fontWeight: "bold", color: "#1e293b", marginBottom: 16, marginTop: 8 },
+  confirmCard: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    overflow: "hidden",
+    marginBottom: 16,
+  },
+  confirmRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  confirmLabel: { fontSize: 13, color: "#64748b", fontWeight: "600", flex: 1 },
+  confirmValue: { fontSize: 13, color: "#1e293b", flex: 2, textAlign: "right" },
+  warningBox: {
+    backgroundColor: "#fffbeb",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#fde68a",
+  },
+  warningText: { color: "#92400e", fontSize: 13 },
+  backButton: {
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: "center",
+    marginTop: 12,
+    borderWidth: 1.5,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#f8fafc",
+  },
+  backButtonText: { color: "#475569", fontSize: 15, fontWeight: "600" },
 });

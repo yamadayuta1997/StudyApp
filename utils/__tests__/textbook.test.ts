@@ -144,6 +144,78 @@ describe('textbook — 登録バリデーション', () => {
   });
 });
 
+// ── ファイルサイズ・ページ数バリデーション ──────────────────────────────
+
+const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024;
+const BYTES_PER_ESTIMATED_PAGE = 100 * 1024;
+const PAGE_WARNING_THRESHOLD = 500;
+
+function validateFileSize(sizeBytes: number): string {
+  if (sizeBytes > MAX_FILE_SIZE_BYTES) {
+    const mb = (sizeBytes / 1024 / 1024).toFixed(1);
+    return `ファイルサイズが大きすぎます（${mb}MB）。50MB以下のPDFを選択してください。`;
+  }
+  return '';
+}
+
+function estimatePageCount(sizeBytes: number): number {
+  return Math.ceil(sizeBytes / BYTES_PER_ESTIMATED_PAGE);
+}
+
+function needsPageWarning(sizeBytes: number): boolean {
+  return estimatePageCount(sizeBytes) > PAGE_WARNING_THRESHOLD;
+}
+
+describe('textbook — ファイルサイズバリデーション', () => {
+  test('50MB 以下はエラーなし', () => {
+    expect(validateFileSize(50 * 1024 * 1024)).toBe('');
+  });
+
+  test('50MB 超はエラーメッセージを返す', () => {
+    const result = validateFileSize(51 * 1024 * 1024);
+    expect(result).toContain('51.0MB');
+    expect(result).toContain('50MB以下');
+  });
+
+  test('ちょうど 50MB + 1byte でエラーになる', () => {
+    expect(validateFileSize(MAX_FILE_SIZE_BYTES + 1)).not.toBe('');
+  });
+
+  test('1MB のファイルはエラーなし', () => {
+    expect(validateFileSize(1 * 1024 * 1024)).toBe('');
+  });
+
+  test('0 bytes はエラーなし', () => {
+    expect(validateFileSize(0)).toBe('');
+  });
+});
+
+describe('textbook — 推定ページ数', () => {
+  test('100KB は約 1 ページと推定される', () => {
+    expect(estimatePageCount(100 * 1024)).toBe(1);
+  });
+
+  test('500 ページ相当（50MB）は警告なし', () => {
+    expect(needsPageWarning(500 * BYTES_PER_ESTIMATED_PAGE)).toBe(false);
+  });
+
+  test('501 ページ相当は警告あり', () => {
+    expect(needsPageWarning(501 * BYTES_PER_ESTIMATED_PAGE)).toBe(true);
+  });
+
+  test('1KB は切り上げで 1 ページ', () => {
+    expect(estimatePageCount(1024)).toBe(1);
+  });
+
+  test('0 bytes は 0 ページ', () => {
+    expect(estimatePageCount(0)).toBe(0);
+  });
+
+  test('PAGE_WARNING_THRESHOLD は 500', () => {
+    expect(PAGE_WARNING_THRESHOLD).toBe(500);
+  });
+});
+
 // computeProgress: phaseとembedding進捗から0〜100%を算出する
 function computeProgress(phase: string, progress?: number, total?: number): number {
   if (phase === 'uploading') return 5;

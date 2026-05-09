@@ -3,6 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useRef, useState } from 'react';
 import { apiClient } from '@/utils/apiClient';
+import { buildCompareShareText } from '@/utils/shareResult';
 import { moveItem } from '@/utils/imageReorder';
 import { DAILY_LIMIT, checkAndIncrement, getUsageCount, isDevDevice } from '@/utils/usageLimit';
 import { supabase } from '@/utils/supabase';
@@ -17,6 +18,7 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -472,6 +474,16 @@ const [usageCount, setUsageCount] = useState(0);
     setShowOverlay(prev => !prev);
   };
 
+  const handleShare = async () => {
+    if (!result) return;
+    const text = buildCompareShareText({ subject, score: result.score, passed: result.passed, feedbacks: result.feedbacks });
+    try {
+      await Share.share({ message: text });
+    } catch {
+      // silently ignore user cancellation
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       {/* フィードバック詳細モーダル */}
@@ -669,6 +681,9 @@ const [usageCount, setUsageCount] = useState(0);
               <View style={[styles.badge, result.passed ? styles.pass : styles.fail]}>
                 <Text style={styles.badgeText}>{result.passed ? '合格ライン達成' : '合格ライン未達'}</Text>
               </View>
+              <TouchableOpacity style={styles.shareBtn} onPress={handleShare}>
+                <Text style={styles.shareBtnText}>🔗 シェア</Text>
+              </TouchableOpacity>
             </View>
             {result.fatalErrors > 0 && (
               <Text style={styles.fatal}>致命的ミス：{result.fatalErrors}件</Text>
@@ -1110,4 +1125,6 @@ const styles = StyleSheet.create({
   loadingStepLine: { flex: 1, height: 2, marginHorizontal: 2, marginBottom: 14 },
   loadingStepLineDone: { backgroundColor: '#34C759' },
   loadingStepLinePending: { backgroundColor: '#E5E7EB' },
+  shareBtn: { marginLeft: 'auto', backgroundColor: '#F0FDF4', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: '#BBF7D0' },
+  shareBtnText: { color: '#166534', fontSize: 13, fontWeight: '600' as const },
 });

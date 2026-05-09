@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { supabase } from "@/utils/supabase";
 import { updateCautionTopics } from "@/utils/cautionTopics";
+import { buildAnswerShareText } from "@/utils/shareResult";
 import { apiClient, TextbookMeta } from "@/utils/apiClient";
 import {
   ActivityIndicator,
@@ -13,6 +14,7 @@ import {
   Modal,
   Platform,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -351,6 +353,15 @@ export default function AnswerScreen() {
       setChatMessages([...msgs, { role: "assistant", content: "エラーが発生しました。もう一度お試しください。" }]);
     } finally {
       setChatLoading(false);
+    }
+  };
+
+  const handleShare = async () => {
+    const text = buildAnswerShareText({ subject, summary, result });
+    try {
+      await Share.share({ message: text });
+    } catch {
+      // silently ignore user cancellation
     }
   };
 
@@ -750,6 +761,9 @@ export default function AnswerScreen() {
                 <View style={styles.resultBadge}>
                   <Text style={styles.resultBadgeText}>{subject}</Text>
                 </View>
+                <TouchableOpacity style={styles.shareButton} onPress={handleShare}>
+                  <Text style={styles.shareButtonText}>🔗 シェア</Text>
+                </TouchableOpacity>
               </View>
               <View style={styles.resultDivider} />
               <Markdown style={markdownStyles}>{result}</Markdown>
@@ -1009,6 +1023,8 @@ const styles = StyleSheet.create({
   ctaBannerText: { flex: 1, fontSize: 13, color: "#1e40af", fontWeight: "600" },
   ctaBannerButton: { backgroundColor: "#2563eb", paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10 },
   ctaBannerButtonText: { color: "#fff", fontSize: 13, fontWeight: "bold" },
+  shareButton: { backgroundColor: "#f0fdf4", paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, borderWidth: 1, borderColor: "#bbf7d0" },
+  shareButtonText: { color: "#166534", fontSize: 13, fontWeight: "600" },
 });
 
 const markdownStyles = {

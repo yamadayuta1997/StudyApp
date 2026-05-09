@@ -3,6 +3,7 @@ import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  Dimensions,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -12,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { computeAverageScore, computeGraphPoints, getLastNScores } from '../../utils/scoreGraph';
 
 type Feedback = { priority: number; type: string; point: string; color: string };
 type Steps = { issueRecognition: string; premise: string; logic: string; conclusion: string };
@@ -45,6 +47,94 @@ const TYPE_COLOR: Record<string, string> = {
   '計算ミス': '#FF6B00',
   '前提不足': '#007AFF',
 };
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const GRAPH_PADDING = { left: 32, right: 16, top: 10, bottom: 8 };
+const GRAPH_HEIGHT = 90;
+
+function ScoreTrendGraph({ items }: { items: CompareHistoryItem[] }) {
+  const graphItems = getLastNScores(items, 10);
+  const chartWidth = SCREEN_WIDTH - 32 - GRAPH_PADDING.left - GRAPH_PADDING.right;
+  const chartHeight = GRAPH_HEIGHT - GRAPH_PADDING.top - GRAPH_PADDING.bottom;
+  const points = computeGraphPoints(graphItems, chartWidth, chartHeight, GRAPH_PADDING.left, GRAPH_PADDING.top);
+
+  if (graphItems.length < 2) {
+    return (
+      <View style={styles.graphEmpty}>
+        <Text style={styles.graphEmptyText}>グラフは2件以上の履歴で表示されます</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={[styles.graphContainer, { height: GRAPH_HEIGHT }]}>
+      {/* y軸ガイドライン */}
+      {[0, 50, 100].map((val) => {
+        const y = GRAPH_PADDING.top + chartHeight - (val / 100) * chartHeight;
+        return (
+          <View key={val} style={{ position: 'absolute', left: 0, top: y, flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={styles.graphYLabel}>{val}</Text>
+            <View style={[styles.graphGuideLine, { width: chartWidth + GRAPH_PADDING.right }]} />
+          </View>
+        );
+      })}
+
+      {/* 折れ線セグメント */}
+      {points.slice(0, -1).map((p, i) => {
+        const next = points[i + 1];
+        const dx = next.x - p.x;
+        const dy = next.y - p.y;
+        const length = Math.sqrt(dx * dx + dy * dy);
+        const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+        return (
+          <View
+            key={`line-${i}`}
+            style={{
+              position: 'absolute',
+              left: (p.x + next.x) / 2 - length / 2,
+              top: (p.y + next.y) / 2 - 1.5,
+              width: length,
+              height: 3,
+              backgroundColor: '#7c3aed',
+              transform: [{ rotate: `${angle}deg` }],
+            }}
+          />
+        );
+      })}
+
+      {/* データ点 */}
+      {points.map((p, i) => (
+        <View
+          key={`dot-${i}`}
+          style={{
+            position: 'absolute',
+            left: p.x - 5,
+            top: p.y - 5,
+            width: 10,
+            height: 10,
+            borderRadius: 5,
+            backgroundColor: '#7c3aed',
+            borderWidth: 2,
+            borderColor: '#fff',
+          }}
+        />
+      ))}
+    </View>
+  );
+}
+
+function AverageScoreBanner({ items }: { items: CompareHistoryItem[] }) {
+  const avg = computeAverageScore(items);
+  if (avg === null) return null;
+  const color = avg >= 70 ? '#16a34a' : avg >= 50 ? '#d97706' : '#dc2626';
+  const bg = avg >= 70 ? '#dcfce7' : avg >= 50 ? '#fef3c7' : '#fee2e2';
+  return (
+    <View style={[styles.avgBanner, { backgroundColor: bg, borderColor: color }]}>
+      <Text style={[styles.avgLabel, { color }]}>平均スコア</Text>
+      <Text style={[styles.avgValue, { color }]}>{avg}%</Text>
+    </View>
+  );
+}
 
 function ScoreBadge({ score }: { score: number }) {
   const color = score >= 70 ? '#16a34a' : score >= 50 ? '#d97706' : '#dc2626';
@@ -118,6 +208,14 @@ export default function CompareHistoryScreen() {
         </ScrollView>
 
         <ScrollView contentContainerStyle={[styles.container, { paddingBottom: insets.bottom + 20 }]}>
+          {filtered.length > 0 && (
+            <View style={styles.graphSection}>
+              <Text style={styles.graphTitle}>📈 スコア推移（直近10件）</Text>
+              <ScoreTrendGraph items={[...filtered].reverse()} />
+              <AverageScoreBanner items={filtered} />
+            </View>
+          )}
+
           {filtered.length === 0 && (
             <Text style={styles.empty}>
               {activeSubject === ALL_TAB
@@ -361,4 +459,30 @@ const styles = StyleSheet.create({
   closeButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
   deleteButton: { flex: 1, backgroundColor: '#fee2e2', padding: 14, borderRadius: 10, alignItems: 'center' },
   deleteButtonText: { color: '#dc2626', fontWeight: 'bold', fontSize: 16 },
+  graphSection: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  graphTitle: { fontSize: 14, fontWeight: 'bold', color: '#7c3aed', marginBottom: 8 },
+  graphContainer: { position: 'relative', width: '100%', overflow: 'hidden' },
+  graphGuideLine: { height: 1, backgroundColor: '#e5e7eb' },
+  graphYLabel: { fontSize: 9, color: '#9CA3AF', width: 28, textAlign: 'right', marginRight: 4 },
+  graphEmpty: { alignItems: 'center', paddingVertical: 12 },
+  graphEmptyText: { fontSize: 12, color: '#9CA3AF' },
+  avgBanner: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  avgLabel: { fontSize: 13, fontWeight: '600' },
+  avgValue: { fontSize: 18, fontWeight: 'bold' },
 });

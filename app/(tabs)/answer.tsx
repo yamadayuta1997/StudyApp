@@ -8,6 +8,7 @@ import { calcSubjectAvgScore, AvgScoreResult } from "@/utils/subjectAvgScore";
 import { supabase } from "@/utils/supabase";
 import { updateCautionTopics } from "@/utils/cautionTopics";
 import { buildAnswerShareText } from "@/utils/shareResult";
+import { summarizeDiff, hasResultChanged } from "@/utils/regradeComparison";
 import { apiClient, TextbookMeta } from "@/utils/apiClient";
 import { pageToX, xToPage, clampFrom, clampTo } from "@/utils/pageRangeSlider";
 import { loadTemplates, saveTemplate, deleteTemplate } from "@/utils/questionTemplates";
@@ -222,6 +223,12 @@ export default function AnswerScreen() {
   // Accordion expand state for long feedback
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const [resultExpanded, setResultExpanded] = useState(false);
+
+  // Regrade
+  const [previousResult, setPreviousResult] = useState("");
+  const [previousSummary, setPreviousSummary] = useState("");
+  const [regradeLoading, setRegradeLoading] = useState(false);
+  const [diffExpanded, setDiffExpanded] = useState(false);
 
   // Question templates
   const [questionTemplates, setQuestionTemplates] = useState<string[]>([]);
@@ -496,6 +503,61 @@ export default function AnswerScreen() {
       setError("採点に失敗しました。もう一度お試しください。");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleRegrade = async () => {
+    setPreviousResult(result);
+    setPreviousSummary(summary);
+    setDiffExpanded(false);
+    setRegradeLoading(true);
+    setResult("");
+    setSummary("");
+    setRefPages([]);
+    setError("");
+    setChatMessages([]);
+    setTopicList([]);
+    setTopicEvaluation(null);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = user?.id ?? "unknown";
+      const data = await apiClient.grade({
+        question, answer, subject, userId,
+        bookIds: [...selectedBookIds],
+        questionImages: questionImages.map(i => i.base64),
+        answerImages: answerImages.map(i => i.base64),
+        ...(questionSourceMode === "textbook" && sourceBookId ? {
+          sourceBookId, sourceFromPage, sourceToPage,
+        } : {}),
+      });
+      setResult(data.result);
+      setSummary(data.summary || "");
+      setRefPages(data.refPages || []);
+      setTopicList(data.topicList || []);
+      setTopicEvaluation(data.topicEvaluation || null);
+
+      const topics: string[] = data.topics ?? [];
+      const wrongTopics: string[] = data.wrongTopics ?? [];
+      const correctTopics = topics.filter(t => !wrongTopics.includes(t));
+      const newItem = {
+        id: Date.now().toString(),
+        subject, question, answer,
+        result: data.result,
+        score: data.score ?? null,
+        date: new Date().toLocaleDateString("ja-JP"),
+        topics,
+        wrongTopics,
+      };
+      const raw = await AsyncStorage.getItem("history");
+      const history = raw ? JSON.parse(raw) : [];
+      await AsyncStorage.setItem("history", JSON.stringify([...history, newItem]));
+      if (wrongTopics.length > 0 || correctTopics.length > 0) {
+        await updateCautionTopics(wrongTopics, correctTopics, subject);
+      }
+    } catch {
+      setError("再採点に失敗しました。もう一度お試しください。");
+    } finally {
+      setRegradeLoading(false);
     }
   };
 
@@ -1039,7 +1101,64 @@ export default function AnswerScreen() {
               <TouchableOpacity style={styles.copyAllButton} onPress={handleCopyAll}>
                 <Text style={styles.copyAllButtonText}>📋 採点結果全体をコピー</Text>
               </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.regradeButton, regradeLoading && styles.buttonDisabled]}
+                onPress={handleRegrade}
+                disabled={regradeLoading}
+              >
+                {regradeLoading
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.regradeButtonText}>🔄 再採点する</Text>}
+              </TouchableOpacity>
             </View>
+
+            {/* 前回との差分 */}
+            {previousResult !== "" && (
+              <View style={styles.diffCard}>
+                <TouchableOpacity
+                  style={styles.diffHeader}
+                  onPress={() => setDiffExpanded(prev => !prev)}
+                >
+                  <Text style={styles.diffTitle}>📊 前回との比較</Text>
+                  <Text style={styles.diffSummaryText}>
+                    {hasResultChanged(previousResult, result)
+                      ? summarizeDiff(previousResult, result)
+                      : "採点結果に変化はありませんでした"}
+                  </Text>
+                  <Text style={styles.expandBtnText}>{diffExpanded ? "閉じる ∧" : "展開 ∨"}</Text>
+                </TouchableOpacity>
+                {diffExpanded && (
+                  <View style={styles.diffBody}>
+                    <View style={styles.diffColumn}>
+                      <Text style={styles.diffColumnLabel}>前回の採点</Text>
+                      <View style={styles.diffTextBox}>
+                        {previousSummary !== "" && (
+                          <Text style={styles.diffSectionLabel}>💡 解説まとめ（前回）</Text>
+                        )}
+                        {previousSummary !== "" && (
+                          <Text style={styles.diffPrevText}>{previousSummary}</Text>
+                        )}
+                        <Text style={styles.diffSectionLabel}>📊 採点結果（前回）</Text>
+                        <Markdown style={markdownStyles}>{previousResult}</Markdown>
+                      </View>
+                    </View>
+                    <View style={styles.diffColumn}>
+                      <Text style={styles.diffColumnLabelNew}>今回の採点</Text>
+                      <View style={styles.diffTextBoxNew}>
+                        {summary !== "" && (
+                          <Text style={styles.diffSectionLabel}>💡 解説まとめ（今回）</Text>
+                        )}
+                        {summary !== "" && (
+                          <Text style={styles.diffCurrText}>{summary}</Text>
+                        )}
+                        <Text style={styles.diffSectionLabel}>📊 採点結果（今回）</Text>
+                        <Markdown style={markdownStyles}>{result}</Markdown>
+                      </View>
+                    </View>
+                  </View>
+                )}
+              </View>
+            )}
 
             {/* 論点評価 */}
             {topicEvaluation && (
@@ -1380,6 +1499,21 @@ function createStyles(colors: AppColors) {
     templateItemDeleteText: { fontSize: 18 },
     templateModalClose: { backgroundColor: colors.accent, borderRadius: 10, padding: 12, alignItems: "center" as const },
     templateModalCloseText: { color: colors.textInverse, fontWeight: "bold" as const, fontSize: 15 },
+    regradeButton: { marginTop: 10, backgroundColor: colors.accentDark, borderRadius: 10, paddingVertical: 12, alignItems: "center" as const },
+    regradeButtonText: { color: colors.textInverse, fontSize: 15, fontWeight: "bold" as const },
+    diffCard: { backgroundColor: colors.cardBg, borderRadius: 14, padding: 16, marginTop: 10, borderWidth: 1.5, borderColor: colors.accentBorder },
+    diffHeader: { gap: 6 },
+    diffTitle: { fontSize: 15, fontWeight: "bold" as const, color: colors.textAccent, marginBottom: 2 },
+    diffSummaryText: { fontSize: 13, color: colors.accent, fontWeight: "600" as const, marginBottom: 4 },
+    diffBody: { marginTop: 12, gap: 12 },
+    diffColumn: { flex: 1 },
+    diffColumnLabel: { fontSize: 13, fontWeight: "bold" as const, color: colors.textMuted, marginBottom: 6 },
+    diffColumnLabelNew: { fontSize: 13, fontWeight: "bold" as const, color: colors.accent, marginBottom: 6 },
+    diffTextBox: { backgroundColor: colors.screenBg, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.cardBorder },
+    diffTextBoxNew: { backgroundColor: colors.accentBg, borderRadius: 10, padding: 12, borderWidth: 1, borderColor: colors.accentBorder },
+    diffSectionLabel: { fontSize: 12, fontWeight: "600" as const, color: colors.textSecondary, marginTop: 8, marginBottom: 4 },
+    diffPrevText: { fontSize: 13, color: colors.textMuted, lineHeight: 20 },
+    diffCurrText: { fontSize: 13, color: colors.textAccent, lineHeight: 20 },
   });
 }
 

@@ -213,12 +213,38 @@ function loadTextbookCache() {
   try {
     if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
     if (fs.existsSync(TEXTBOOKS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(TEXTBOOKS_FILE, "utf8"));
+      let raw;
+      try {
+        raw = fs.readFileSync(TEXTBOOKS_FILE, "utf8");
+      } catch (readErr) {
+        console.error("textbook cache read error:", readErr.message);
+        textbookCache = new Map();
+        console.log(`textbook cache loaded: 0 entries`);
+        return;
+      }
+      let data;
+      try {
+        data = JSON.parse(raw);
+      } catch (parseErr) {
+        console.error("textbook cache parse error (corrupted file):", parseErr.message);
+        const bakPath = TEXTBOOKS_FILE + ".bak";
+        try {
+          fs.renameSync(TEXTBOOKS_FILE, bakPath);
+          console.warn(`corrupted textbooks.json backed up to ${bakPath}`);
+        } catch (bakErr) {
+          console.error("textbook cache backup error:", bakErr.message);
+        }
+        textbookCache = new Map();
+        console.log(`textbook cache loaded: 0 entries`);
+        return;
+      }
       textbookCache = new Map(Array.isArray(data) ? data : []);
     }
+    console.log(`textbook cache loaded: ${textbookCache.size} entries`);
   } catch (e) {
     console.error("textbook cache load error:", e.message);
     textbookCache = new Map();
+    console.log(`textbook cache loaded: 0 entries`);
   }
 }
 

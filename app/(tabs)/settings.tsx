@@ -1,7 +1,8 @@
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ScrollView, StyleSheet, Switch, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useAppTheme, ThemeMode } from '@/contexts/ThemeContext';
 import { AppColors } from '@/constants/theme';
+import { useAppVersion } from '@/hooks/use-app-version';
 
 const THEME_OPTIONS: { mode: ThemeMode; label: string; icon: string; desc: string }[] = [
   { mode: 'system', label: 'システム設定に連動', icon: '⚙️', desc: 'デバイスの設定に合わせて自動切替' },
@@ -12,6 +13,7 @@ const THEME_OPTIONS: { mode: ThemeMode; label: string; icon: string; desc: strin
 export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const { colors, themeMode, setThemeMode, isDark } = useAppTheme();
+  const { version, updateStatus, checkForUpdate } = useAppVersion();
   const styles = createStyles(colors);
 
   return (
@@ -59,6 +61,40 @@ export default function SettingsScreen() {
             </Text>
           </View>
         </View>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>📦 バージョン情報</Text>
+
+        {updateStatus === 'available' && (
+          <View style={styles.updateBanner}>
+            <Text style={styles.updateBannerText}>🆕 新しいバージョンがあります</Text>
+          </View>
+        )}
+
+        <View style={styles.statusRow}>
+          <Text style={styles.statusLabel}>現在のバージョン</Text>
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusBadgeText}>v{version}</Text>
+          </View>
+        </View>
+
+        <View style={styles.statusRow}>
+          <Text style={styles.statusLabel}>アップデート状態</Text>
+          {updateStatus === 'checking' ? (
+            <ActivityIndicator size="small" color={colors.accent} />
+          ) : (
+            <View style={[styles.statusBadge, updateStatus === 'available' && styles.updateBadge]}>
+              <Text style={[styles.statusBadgeText, updateStatus === 'available' && styles.updateBadgeText]}>
+                {updateStatus === 'available' ? '更新あり' : '最新版'}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        <TouchableOpacity style={styles.checkButton} onPress={checkForUpdate} activeOpacity={0.7}>
+          <Text style={styles.checkButtonText}>更新を確認する</Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -131,5 +167,27 @@ function createStyles(colors: AppColors) {
     },
     statusBadgeText: { fontSize: 13, fontWeight: '600', color: colors.accent },
     statusBadgeTextDark: { color: colors.purple },
+    updateBanner: {
+      backgroundColor: '#FFF3CD',
+      borderWidth: 1,
+      borderColor: '#FFCA28',
+      borderRadius: 10,
+      padding: 12,
+      marginBottom: 12,
+    },
+    updateBannerText: { fontSize: 14, fontWeight: '600', color: '#856404', textAlign: 'center' },
+    updateBadge: { backgroundColor: '#FFF3CD', borderColor: '#FFCA28' },
+    updateBadgeText: { color: '#856404' },
+    checkButton: {
+      marginTop: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 20,
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: colors.accentBorder,
+      alignItems: 'center',
+      backgroundColor: colors.accentBg,
+    },
+    checkButtonText: { fontSize: 14, fontWeight: '600', color: colors.accent },
   });
 }

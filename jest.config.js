@@ -4,5 +4,6 @@ module.exports = {
   testMatch: [
     '**/utils/__tests__/**/*.test.ts',
     '**/components/__tests__/**/*.test.tsx',
+    '**/hooks/__tests__/**/*.test.ts',
   ],
 };

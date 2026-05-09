@@ -1058,6 +1058,76 @@ ${topicsText}${improvedSection}
   }
 });
 
+// ---- Weekly Study Report ----
+app.post("/study-report", async (req, res) => {
+  try {
+    const {
+      scoringItems = [],
+      compareItems = [],
+      avgScore,
+      subjectBreakdown = {},
+      topWrongTopics = [],
+    } = req.body;
+
+    const totalScoringCount = scoringItems.length;
+    const totalCompareCount = compareItems.length;
+
+    const subjectSummary = Object.entries(subjectBreakdown)
+      .map(([subj, data]) =>
+        `・${subj}: ${data.count}回採点、平均得点率${data.avgScore !== null ? data.avgScore + "%" : "不明"}`
+      )
+      .join("\n") || "データなし";
+
+    const wrongTopicsSummary = topWrongTopics.length > 0
+      ? topWrongTopics.map((t, i) => `${i + 1}. ${t.topic}（${t.count}回ミス）`).join("\n")
+      : "データなし";
+
+    const prompt = `あなたは公認会計士試験の学習コーチです。以下の先週の学習データを分析して、学習レポートを作成してください。
+
+【先週の学習データ（過去7日間）】
+- 答案採点: ${totalScoringCount}回
+- 比較添削: ${totalCompareCount}回
+- 採点の平均得点率: ${avgScore !== null && avgScore !== undefined ? avgScore + "%" : "データなし"}
+
+【科目別実績】
+${subjectSummary}
+
+【よくミスした論点（頻度順）】
+${wrongTopicsSummary}
+
+以下の3つのセクションで回答してください。各セクションは具体的・実践的に記述してください。
+
+## 今週の成果
+（先週の学習量・得点率・科目カバレッジなど、良かった点を2〜3点）
+
+## 改善すべき論点
+（ミスが多かった論点や得点率が低い科目への具体的な改善アドバイスを2〜3点）
+
+## 来週の学習提案
+（来週優先して取り組むべきことを具体的に2〜3点）`;
+
+    const message = await client.messages.create({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1024,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text = message.content[0].text;
+    const achievementsMatch = text.match(/##\s*今週の成果\s*([\s\S]*?)(?=##|$)/);
+    const improvementsMatch = text.match(/##\s*改善すべき論点\s*([\s\S]*?)(?=##|$)/);
+    const suggestionsMatch = text.match(/##\s*来週の学習提案\s*([\s\S]*?)(?=##|$)/);
+
+    res.json({
+      achievements: achievementsMatch ? achievementsMatch[1].trim() : "",
+      improvements: improvementsMatch ? improvementsMatch[1].trim() : "",
+      suggestions: suggestionsMatch ? suggestionsMatch[1].trim() : "",
+    });
+  } catch (e) {
+    console.error("/study-report error:", e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // ---- Chat ----
 app.post("/chat", async (req, res) => {
   try {

@@ -3,6 +3,7 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useState } from "react";
 import { supabase } from "@/utils/supabase";
 import { getCautionTopics, getOverdueReviewTopics, CautionTopic } from "@/utils/cautionTopics";
+import { collectWeeklySummary, isMonday, WeeklyReport } from "@/utils/weeklyReport";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   ActivityIndicator,
@@ -62,6 +63,9 @@ export default function HomeScreen() {
   const [userName, setUserName] = useState("受験生");
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editingName, setEditingName] = useState("");
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [weeklyReport, setWeeklyReport] = useState<WeeklyReport | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -211,6 +215,27 @@ export default function HomeScreen() {
     }
   };
 
+  const getWeeklyReport = async () => {
+    setReportLoading(true);
+    setWeeklyReport(null);
+    setReportModalVisible(true);
+    try {
+      const summary = await collectWeeklySummary();
+      const response = await fetch(`${API_BASE_URL}/study-report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(summary),
+      });
+      const data = await response.json();
+      setWeeklyReport({ achievements: data.achievements, improvements: data.improvements, suggestions: data.suggestions });
+    } catch {
+      Alert.alert("エラー", "レポートの取得に失敗しました。");
+      setReportModalVisible(false);
+    } finally {
+      setReportLoading(false);
+    }
+  };
+
   const scoreColor =
     stats.avgScore === null
       ? "#64748b"
@@ -248,6 +273,18 @@ export default function HomeScreen() {
             <Text style={styles.logoutButtonText}>ログアウト</Text>
           </TouchableOpacity>
         </View>
+
+        {/* 週次レポートバナー（月曜日のみ表示） */}
+        {isMonday() && (
+          <TouchableOpacity style={styles.reportBanner} onPress={getWeeklyReport}>
+            <Text style={styles.reportBannerEmoji}>📋</Text>
+            <View style={styles.reportBannerText}>
+              <Text style={styles.reportBannerTitle}>今週のレポートを見る</Text>
+              <Text style={styles.reportBannerSub}>先週の学習をAIが分析・振り返り</Text>
+            </View>
+            <Text style={styles.reportBannerArrow}>→</Text>
+          </TouchableOpacity>
+        )}
 
         {/* 学習進捗サマリー */}
         <View style={styles.sectionCard}>
@@ -374,6 +411,42 @@ export default function HomeScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* 週次レポートモーダル */}
+      <Modal visible={reportModalVisible} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, styles.reportModalContent]}>
+            <Text style={styles.reportModalTitle}>📋 週次学習レポート</Text>
+            {reportLoading ? (
+              <View style={styles.reportLoadingContainer}>
+                <ActivityIndicator size="large" color="#2563eb" />
+                <Text style={styles.reportLoadingText}>AIがレポートを生成中...</Text>
+              </View>
+            ) : weeklyReport ? (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={styles.reportSection}>
+                  <Text style={styles.reportSectionTitle}>🏆 今週の成果</Text>
+                  <Text style={styles.reportSectionText}>{weeklyReport.achievements}</Text>
+                </View>
+                <View style={styles.reportSection}>
+                  <Text style={styles.reportSectionTitle}>⚠️ 改善すべき論点</Text>
+                  <Text style={styles.reportSectionText}>{weeklyReport.improvements}</Text>
+                </View>
+                <View style={styles.reportSection}>
+                  <Text style={styles.reportSectionTitle}>📚 来週の学習提案</Text>
+                  <Text style={styles.reportSectionText}>{weeklyReport.suggestions}</Text>
+                </View>
+              </ScrollView>
+            ) : null}
+            <TouchableOpacity
+              style={[styles.modalBtn, styles.modalBtnSave, { marginTop: 16 }]}
+              onPress={() => setReportModalVisible(false)}
+            >
+              <Text style={styles.modalBtnSaveText}>閉じる</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* ユーザー名編集モーダル */}
       <Modal visible={editModalVisible} transparent animationType="fade">
@@ -581,6 +654,39 @@ function createStyles(colors: AppColors) {
     },
     tipCardTitle: { fontSize: 13, fontWeight: "bold", color: colors.textAccent, marginBottom: 8 },
     tipCardText: { fontSize: 13, color: colors.textSecondary, lineHeight: 21 },
+
+    reportBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: "#1e40af",
+      borderRadius: 14,
+      padding: 14,
+      marginBottom: 14,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 6,
+    },
+    reportBannerEmoji: { fontSize: 24, marginRight: 10 },
+    reportBannerText: { flex: 1 },
+    reportBannerTitle: { fontSize: 14, fontWeight: "bold", color: "#fff" },
+    reportBannerSub: { fontSize: 11, color: "#bfdbfe", marginTop: 2 },
+    reportBannerArrow: { fontSize: 16, color: "#bfdbfe", marginLeft: 8 },
+
+    reportModalContent: { maxHeight: "80%", width: "90%" },
+    reportModalTitle: { fontSize: 18, fontWeight: "bold", color: colors.textPrimary, marginBottom: 16, textAlign: "center" },
+    reportLoadingContainer: { alignItems: "center", paddingVertical: 32 },
+    reportLoadingText: { fontSize: 13, color: colors.textSecondary, marginTop: 12 },
+    reportSection: {
+      backgroundColor: colors.statCardBg,
+      borderRadius: 10,
+      padding: 12,
+      marginBottom: 12,
+      borderWidth: 1,
+      borderColor: colors.cardBorder,
+    },
+    reportSectionTitle: { fontSize: 14, fontWeight: "bold", color: colors.textAccent, marginBottom: 8 },
+    reportSectionText: { fontSize: 13, color: colors.textSecondary, lineHeight: 21 },
 
     modalOverlay: {
       flex: 1,
